@@ -34,12 +34,21 @@
 - Compiled native tool self-test: passed (2 tool calls and README title returned).
 - Settings-window Tk construction test: passed with chat-model, OCR-model, and workspace
   selectors present.
+- Completion-race regression: passed; a queued completion event now waits for the worker
+  thread to exit before the next send is allowed.
+- Rebuilt EXE chat self-test: passed (`READY`, 6 chunks).
+- Rebuilt EXE OCR self-test with external PP-OCRv6 folder: passed.
 
 ## Artifact
 
 - `Notepad/dist/Local_LLM_Notepad-portable.exe`
-- Size: 160,998,495 bytes
-- SHA-256: `68E95532605DF3F218759148F89AA55C49926EDBD35AB923E3BF7B11C7846F7F`
+- Size: 160,997,947 bytes
+- SHA-256: `C964F74604EA4DF37A8B6D0FA9225F18FD941C9136BA214281419D5A78454BC2`
+
+## Follow-up bug fix
+
+- Fixed the second-send race in `Notepad/chat_gui.py`: the GUI no longer renders the response
+  as complete while the generation worker is still technically alive.
 
 ## Falcon note
 

@@ -678,7 +678,15 @@ class ChatGUI:
             self.chat_canvas.update_idletasks()
             self.chat_canvas.yview_moveto(1.0)
         if finished:
+            # The worker publishes its final event in ``finally`` immediately
+            # before returning. Wait for the thread to actually exit before
+            # declaring the composer ready; otherwise the next send can be
+            # dropped by on_send's busy check.
+            if self.gen_thread and self.gen_thread.is_alive():
+                self.chat_canvas.after(10, self._process_queue)
+                return
             self.assistant_label = None
+            self.gen_thread = None
             self._refresh_sessions()
             self._persist_sessions()
             self._render_chat()
