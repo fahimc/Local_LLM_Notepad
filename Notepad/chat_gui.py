@@ -11,6 +11,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from typing import Any, List, Tuple
 
+from agent_runtime import Skill, agent_respond, discover_skills
+
 __all__ = ["ChatGUI", "run_app"]
 
 
@@ -34,9 +36,14 @@ class ChatGUI:
         self.root.configure(bg=self.BG)
         self.system_prompt = "You are a helpful assistant."
         self.model_path = "gemma-3-1b-it-Q4_K_M.gguf"
-        self.session_file = os.path.join(
-            os.path.dirname(os.path.abspath(sys.argv[0])), "chat_sessions.json"
-        )
+        self.app_dir = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
+                        else os.path.dirname(os.path.abspath(__file__)))
+        self.session_file = os.path.join(self.app_dir, "chat_sessions.json")
+        self.workspace_dir = self.app_dir
+        self.skills: list[Skill] = discover_skills(self.app_dir)
+        self.enabled_skill_names: set[str] = set()
+        self.skill_vars: dict[str, tk.BooleanVar] = {}
+        self.tools_enabled = tk.BooleanVar(value=True)
         self.sessions: list[dict[str, Any]] = []
         self.current_session: dict[str, Any] | None = None
         self.history_data: list[dict[str, str]] = []
@@ -53,6 +60,11 @@ class ChatGUI:
         self._load_sessions()
         if self.sessions:
             self.current_session = self.sessions[0]
+            self.enabled_skill_names = {
+                str(name).casefold() for name in self.current_session.get("skills", [])
+            }
+            self._rebuild_skills_menu()
+            self._update_agent_label()
             self.title_label.config(text=self.current_session["title"])
             self._refresh_sessions()
             self._render_chat()
@@ -80,6 +92,14 @@ class ChatGUI:
         view = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
         view.add_command(label="Toggle chat history", accelerator="Ctrl+B", command=self.toggle_sidebar)
         menu.add_cascade(label="View", menu=view)
+        tools_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
+        tools_menu.add_checkbutton(label="Enable local tools", variable=self.tools_enabled,
+                                   command=self._update_agent_label)
+        tools_menu.add_command(label="Select Workspace...", command=self.select_workspace)
+        menu.add_cascade(label="Tools", menu=tools_menu)
+        self.skills_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
+        menu.add_cascade(label="Skills", menu=self.skills_menu)
+        self._rebuild_skills_menu()
         help_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
         help_menu.add_command(label="About", command=self.show_about)
         menu.add_cascade(label="Help", menu=help_menu)
@@ -138,6 +158,9 @@ class ChatGUI:
         self.model_label = tk.Label(header, text="gemma-3-1b-it", bg=self.BG,
                                     fg=self.MUTED, font=("Segoe UI", 9), anchor="e")
         self.model_label.pack(side="right", padx=24)
+        self.agent_label = tk.Label(header, text="Tools on · 0 skills", bg=self.BG,
+                                    fg=self.DIM, font=("Segoe UI", 9), anchor="e")
+        self.agent_label.pack(side="right", padx=(8, 0))
 
         chat_outer = tk.Frame(self.main, bg=self.BG)
         chat_outer.pack(fill="both", expand=True)
@@ -199,6 +222,63 @@ class ChatGUI:
             self.sidebar.pack(side="left", fill="y", before=self.main)
         self.sidebar_visible = not self.sidebar_visible
 
+    def _rebuild_skills_menu(self) -> None:
+        self.skills_menu.delete(0, tk.END)
+        self.skill_vars = {}
+        if not self.skills:
+            self.skills_menu.add_command(label="No skills found", state="disabled")
+        for skill in self.skills:
+            enabled = skill.name.casefold() in self.enabled_skill_names
+            variable = tk.BooleanVar(value=enabled)
+            self.skill_vars[skill.name.casefold()] = variable
+            self.skills_menu.add_checkbutton(
+                label=skill.name,
+                variable=variable,
+                command=lambda selected=skill.name: self._toggle_skill(selected),
+            )
+        self.skills_menu.add_separator()
+        self.skills_menu.add_command(label="Reload Skills", command=self.reload_skills)
+        self.skills_menu.add_command(label="Open Skills Folder", command=self.open_skills_folder)
+
+    def _toggle_skill(self, name: str) -> None:
+        key = name.casefold()
+        variable = self.skill_vars[key]
+        if variable.get():
+            self.enabled_skill_names.add(key)
+        else:
+            self.enabled_skill_names.discard(key)
+        if self.current_session is not None:
+            self.current_session["skills"] = sorted(self.enabled_skill_names)
+            self._persist_sessions()
+        self._update_agent_label()
+
+    def _update_agent_label(self) -> None:
+        if not hasattr(self, "agent_label"):
+            return
+        tools = "Tools on" if self.tools_enabled.get() else "Tools off"
+        count = len(self.enabled_skill_names)
+        self.agent_label.configure(text=f"{tools} · {count} skill{'s' if count != 1 else ''}")
+
+    def reload_skills(self) -> None:
+        self.skills = discover_skills(self.app_dir)
+        available = {skill.name.casefold() for skill in self.skills}
+        self.enabled_skill_names.intersection_update(available)
+        self._rebuild_skills_menu()
+        self._update_agent_label()
+
+    def open_skills_folder(self) -> None:
+        path = os.path.join(self.app_dir, "skills")
+        os.makedirs(path, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(path)
+
+    def select_workspace(self) -> None:
+        path = filedialog.askdirectory(title="Select workspace for local tools",
+                                       initialdir=self.workspace_dir)
+        if path:
+            self.workspace_dir = os.path.abspath(path)
+            self._update_agent_label()
+
     def _on_input_return(self, event: tk.Event) -> str | None:
         if event.state & 0x0001:
             return None
@@ -221,9 +301,12 @@ class ChatGUI:
     def new_chat(self) -> None:
         if self.gen_thread and self.gen_thread.is_alive():
             return
-        session = {"title": "New chat", "messages": []}
+        session = {"title": "New chat", "messages": [], "skills": []}
         self.sessions.insert(0, session)
         self.current_session = session
+        self.enabled_skill_names.clear()
+        self._rebuild_skills_menu()
+        self._update_agent_label()
         self.history_data = []
         self.attachments.clear()
         self.title_label.config(text="New chat")
@@ -265,6 +348,11 @@ class ChatGUI:
         if not selection or (self.gen_thread and self.gen_thread.is_alive()):
             return
         self.current_session = self.sessions[selection[0]]
+        self.enabled_skill_names = {
+            str(name).casefold() for name in self.current_session.get("skills", [])
+        }
+        self._rebuild_skills_menu()
+        self._update_agent_label()
         self.history_data = []
         messages = self.current_session["messages"]
         for index, message in enumerate(messages):
@@ -288,13 +376,14 @@ class ChatGUI:
         else:
             for message in self.current_session["messages"]:
                 self._add_message(message["role"], message["content"],
-                                  message.get("elapsed_seconds"))
+                                  message.get("elapsed_seconds"), message.get("tool_calls", 0))
         self.chat_canvas.update_idletasks()
         self.chat_canvas.yview_moveto(1.0)
         self._refresh_attachment_row()
 
     def _add_message(self, role: str, content: str,
-                     elapsed_seconds: float | None = None) -> tk.Label | None:
+                     elapsed_seconds: float | None = None,
+                     tool_calls: int = 0) -> tk.Label | None:
         row = tk.Frame(self.chat_frame, bg=self.BG)
         row.pack(fill="x", padx=20, pady=(7, 18 if role == "assistant" else 7))
         body = tk.Frame(row, bg=self.BG)
@@ -317,8 +406,10 @@ class ChatGUI:
         content_frame = tk.Frame(body, bg=self.BG)
         content_frame.pack(fill="x", padx=(55, 70))
         if elapsed_seconds is not None:
+            tool_note = f" · {tool_calls} tool call{'s' if tool_calls != 1 else ''}" \
+                if tool_calls else ""
             tk.Label(content_frame,
-                     text=f"Worked for {self._format_duration(elapsed_seconds)}  ›",
+                     text=f"Worked for {self._format_duration(elapsed_seconds)}{tool_note}  ›",
                      bg=self.BG, fg=self.MUTED, anchor="w",
                      font=("Segoe UI", 10)).pack(fill="x", pady=(0, 16))
         if not content:
@@ -479,26 +570,53 @@ class ChatGUI:
     def _worker_generate(self, prompt: str, history: List[Tuple[str, str]],
                          session: dict[str, Any]) -> None:
         last = ""
+        visible = ""
+        tool_calls = 0
         started = time.perf_counter()
         try:
             from llm_utils import respond
-            for full in respond(prompt, history, model=self.model_path,
-                                system_message=self.system_prompt):
+            from server_backend import server_agent_respond, server_available
+            enabled_skills = [skill for skill in self.skills
+                              if skill.name.casefold() in self.enabled_skill_names]
+            self.queue.put(("status", "Loading local model…"))
+            if server_available():
+                events = server_agent_respond(
+                    prompt, history, model=self.model_path,
+                    system_message=self.system_prompt, workspace=self.workspace_dir,
+                    skills=enabled_skills, tools_enabled=self.tools_enabled.get())
+            else:
+                events = agent_respond(
+                    prompt, history, model=self.model_path,
+                    system_message=self.system_prompt, workspace=self.workspace_dir,
+                    skills=enabled_skills, tools_enabled=self.tools_enabled.get(),
+                    respond_fn=respond)
+            for kind, payload in events:
                 if self.stop_event.is_set():
+                    last = visible
                     break
-                delta = full[len(last):] if full.startswith(last) else full
-                self.queue.put(("text", delta))
-                last = full
+                if kind == "done":
+                    last = str(payload.get("text", ""))
+                    tool_calls = int(payload.get("tool_calls", 0))
+                else:
+                    if kind == "replace":
+                        visible = str(payload)
+                    elif kind == "text":
+                        visible += str(payload)
+                    self.queue.put((kind, payload))
         except Exception as exc:
+            if not last:
+                last = visible
             error_text = f"\n\nError: {exc}" if last else f"Error: {exc}"
             last += error_text
             self.queue.put(("text", error_text))
         finally:
             elapsed = time.perf_counter() - started
             session["messages"].append({"role": "assistant", "content": last,
-                                        "elapsed_seconds": elapsed})
+                                        "elapsed_seconds": elapsed,
+                                        "tool_calls": tool_calls})
             self.history_data[-1]["assistant"] = last
-            self.queue.put(("done", elapsed))
+            self.queue.put(("done", {"elapsed_seconds": elapsed,
+                                     "tool_calls": tool_calls}))
 
     def _process_queue(self) -> None:
         finished = False
@@ -510,9 +628,16 @@ class ChatGUI:
             if kind == "done":
                 finished = True
                 continue
-            self.assistant_text += str(payload)
+            if kind == "replace":
+                self.assistant_text = str(payload)
+            elif kind == "status":
+                if self.assistant_label:
+                    self.assistant_label.configure(text=str(payload), fg=self.MUTED)
+                continue
+            else:
+                self.assistant_text += str(payload)
             if self.assistant_label:
-                self.assistant_label.config(text=self.assistant_text)
+                self.assistant_label.config(text=self.assistant_text, fg=self.TEXT)
             self.chat_canvas.update_idletasks()
             self.chat_canvas.yview_moveto(1.0)
         if finished:
@@ -562,7 +687,7 @@ class ChatGUI:
                 raise ValueError("Invalid chat format")
             session = {"title": next((message["content"][:34] for message in messages
                                       if message["role"] == "user"), "Loaded chat"),
-                       "messages": messages}
+                       "messages": messages, "skills": []}
             self.sessions.insert(0, session)
             self.current_session = session
             self.title_label.config(text=session["title"])

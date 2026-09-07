@@ -27,6 +27,18 @@ unboxed assistant answers, elapsed generation time, and a compact bottom compose
 Answers appear as they are generated. Markdown headings and bold text are rendered after
 completion, while fenced code blocks get their own one-click Copy button.
 
+🛠 Local tools
+
+The model can list, read, and search files inside a folder you select, plus use a safe
+calculator. Tool calls use the model's native chat format and results are returned through
+proper tool messages. Tools are read-only and cannot escape the selected workspace.
+
+🧩 Skills
+
+Add familiar `skills/<skill-name>/SKILL.md` instruction packages beside the EXE. Reload and
+enable skills from the Skills menu; each chat remembers its own enabled skills. Two starter
+skills are bundled.
+
 📎 Attachments
 
 Attach text-based files from the composer. Their contents are included with the prompt and the attached filenames remain visible as removable chips.
@@ -117,9 +129,12 @@ The source build uses a current `llama-cpp-python` runtime so recent GGUF model 
 
 ### 3. Bundle everything
 
-$ pyinstaller --onefile --noconsole --additional-hooks-dir=. --add-binary "..\.vendor\llama.cpp-k2\build\bin\Release\*;k2_runtime" main.py
+$ pyinstaller --onefile --noconsole --additional-hooks-dir=. --add-binary "..\.vendor\llama.cpp-k2\build\bin\Release\*;k2_runtime" --add-data "skills;skills" main.py
 
-The `k2_runtime` folder must contain the compiled `model/K2Horizon` branch from the MBZUAI-IFM llama.cpp fork. This runtime also supports standard GGUF architectures; the K2-specific tokenizer workaround is applied only when the selected filename contains `K2-Horizon`.
+The `k2_runtime` folder must contain `llama-completion.exe`, `llama-server.exe`, and their
+native DLLs compiled from the MBZUAI-IFM `model/K2Horizon` branch. The server provides native
+streaming tool calls and keeps the selected model loaded between prompts. The K2-specific
+tokenizer workaround is applied only when the selected filename contains `K2-Horizon`.
 
 ### 4. Grab `dist/Local_LLM_Notepad-portable.exe`
 
