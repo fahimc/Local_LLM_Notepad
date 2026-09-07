@@ -155,11 +155,11 @@ class ChatGUI:
         self.input_text.pack(side="left", fill="both", expand=True)
         tools = tk.Frame(box, bg="#303030")
         tools.pack(side="right", fill="y", padx=7, pady=7)
-        self._button(tools, "＋", self.attach_files, bg="#303030", activebackground="#454545",
-                     font=("Segoe UI", 17), padx=8, pady=1).pack(side="left")
-        self.send_button = self._button(tools, "↑", self.on_send, bg=self.ACCENT,
-                                        activebackground="#0d8c6d", font=("Segoe UI", 16, "bold"),
-                                        padx=10, pady=1)
+        self._button(tools, "Attach", self.attach_files, bg="#303030", activebackground="#454545",
+                     width=7, height=1, font=("Segoe UI", 9), padx=8, pady=5).pack(side="left")
+        self.send_button = self._button(tools, "Send", self.on_send, bg=self.ACCENT,
+                                        activebackground="#0d8c6d", width=7, height=1,
+                                        font=("Segoe UI", 9, "bold"), padx=8, pady=5)
         self.send_button.pack(side="left", padx=(5, 0))
         tk.Label(composer, text="Local LLM Notepad can make mistakes. Check important information.",
                  bg=self.BG, fg="#777777", font=("Segoe UI", 8)).pack(pady=(8, 0))
@@ -336,6 +336,12 @@ class ChatGUI:
                     break
                 self.queue.put(full[len(last):])
                 last = full
+        except ModuleNotFoundError as exc:
+            missing = exc.name or "a required package"
+            last = (f"Model runtime is not installed ({missing}).\n\n"
+                    "Open a terminal in the app folder and run:\n"
+                    "python -m pip install -r requirements.txt")
+            self.queue.put(last)
         except Exception as exc:
             last += f"\n\nError: {exc}"
             self.queue.put(last)

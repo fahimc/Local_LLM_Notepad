@@ -110,11 +110,13 @@ $ git clone https://github.com/runzhouye/Local_LLM_Notepad.git
 
 $ cd Local_LLM_Notepad
 
-### 2. Create env & install deps
+### 2. Create an environment and install the runtime
 
 $ python -m venv .venv && .\.venv\Scripts\activate
 
-$ pip install -r requirements.txt
+$ python -m pip install -r requirements.txt
+
+The source build uses `llama-cpp-python` directly. The requirements file pins a version compatible with the older Python runtime used by the original portable build. If you use a newer Python version, you can remove the version pin and install the latest `llama-cpp-python` instead.
 
 ### 3. Bundle everything
 

@@ -4,33 +4,10 @@ import os
 from typing import List, Tuple
 
 from llama_cpp import Llama
-from llama_cpp_agent import LlamaCppAgent
-from llama_cpp_agent.providers import LlamaCppPythonProvider
-from llama_cpp_agent.chat_history import BasicChatHistory
-from llama_cpp_agent.chat_history.messages import Roles
-from llama_cpp_agent.messages_formatter import MessagesFormatter, PromptMarkers
 
 __all__ = [
     "respond",
 ]
-
-# ───────────────────────── Gemma‑3 prompt markers ──────────────────────────
-_gemma_3_prompt_markers = {
-    Roles.system:    PromptMarkers("", "\n"),
-    Roles.user:      PromptMarkers("<start_of_turn>user\n",  "<end_of_turn>\n"),
-    Roles.assistant: PromptMarkers("<start_of_turn>model\n", "<end_of_turn>\n"),
-    Roles.tool:      PromptMarkers("", ""),
-}
-_gemma_3_formatter = MessagesFormatter(
-    pre_prompt="",
-    prompt_markers=_gemma_3_prompt_markers,
-    include_sys_prompt_in_first_user_message=True,
-    default_stop_sequences=["<end_of_turn>", "<start_of_turn>"],
-    strip_prompt=False,
-    bos_token="<bos>",
-    eos_token="<eos>",
-)
-
 
 _llm: Llama | None = None
 _llm_model_path: str | None = None
@@ -80,39 +57,26 @@ def respond(
     )
 
     llm = _lazy_load_model(model_path)
-    provider = LlamaCppPythonProvider(llm)
-    agent = LlamaCppAgent(
-        provider,
-        system_prompt=system_message,
-        custom_messages_formatter=_gemma_3_formatter,
-        debug_output=False,
-    )
-
-    settings = provider.get_provider_default_settings()
-    settings.temperature = temperature
-    settings.top_k = top_k
-    settings.top_p = top_p
-    settings.max_tokens = max_tokens
-    settings.repeat_penalty = repeat_penalty
-    settings.stream = True
-
-    chat_hist = BasicChatHistory()
+    messages = [{"role": "system", "content": system_message}]
     for user_msg, assistant_msg in history:
-        chat_hist.add_message({"role": Roles.user, "content": user_msg})
-        chat_hist.add_message({"role": Roles.assistant, "content": assistant_msg})
-
-    stream = agent.get_chat_response(
-        message,
-        llm_sampling_settings=settings,
-        chat_history=chat_hist,
-        returns_streaming_generator=True,
-        print_output=False,
+        messages.append({"role": "user", "content": user_msg})
+        messages.append({"role": "assistant", "content": assistant_msg})
+    messages.append({"role": "user", "content": message})
+    stream = llm.create_chat_completion(
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repeat_penalty=repeat_penalty,
+        stream=True,
     )
 
     full = ""
     try:
-        for tok in stream:
-            full += tok
+        for chunk in stream:
+            delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+            full += delta
             yield full
     except Exception as exc:
         yield f"[Error] {exc}\n"
