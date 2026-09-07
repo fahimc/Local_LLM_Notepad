@@ -34,16 +34,24 @@ class ChatGUI:
         self.root.geometry("1180x790")
         self.root.minsize(850, 560)
         self.root.configure(bg=self.BG)
-        self.system_prompt = "You are a helpful assistant."
-        self.model_path = "gemma-3-1b-it-Q4_K_M.gguf"
         self.app_dir = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
                         else os.path.dirname(os.path.abspath(__file__)))
         self.session_file = os.path.join(self.app_dir, "chat_sessions.json")
+        self.settings_file = os.path.join(self.app_dir, "app_settings.json")
+        default_ocr = r"I:\models\PP-OCRv6-small"
+        self.system_prompt = "You are a helpful assistant."
+        self.model_path = "gemma-3-1b-it-Q4_K_M.gguf"
+        self.ocr_model_dir = default_ocr if os.path.isdir(default_ocr) else ""
         self.workspace_dir = self.app_dir
+        saved_settings = self._load_settings()
+        self.system_prompt = str(saved_settings.get("system_prompt", self.system_prompt))
+        self.model_path = str(saved_settings.get("model_path", self.model_path))
+        self.ocr_model_dir = str(saved_settings.get("ocr_model_dir", self.ocr_model_dir))
+        self.workspace_dir = str(saved_settings.get("workspace_dir", self.workspace_dir))
         self.skills: list[Skill] = discover_skills(self.app_dir)
         self.enabled_skill_names: set[str] = set()
         self.skill_vars: dict[str, tk.BooleanVar] = {}
-        self.tools_enabled = tk.BooleanVar(value=True)
+        self.tools_enabled = tk.BooleanVar(value=bool(saved_settings.get("tools_enabled", True)))
         self.sessions: list[dict[str, Any]] = []
         self.current_session: dict[str, Any] | None = None
         self.history_data: list[dict[str, str]] = []
@@ -77,6 +85,7 @@ class ChatGUI:
         file_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
         file_menu.add_command(label="New chat", accelerator="Ctrl+N", command=self.new_chat)
         file_menu.add_command(label="Select Model...", command=self.select_model)
+        file_menu.add_command(label="Settings...", command=self.open_settings)
         file_menu.add_command(label="Save Current Chat...", command=self.save_chat)
         file_menu.add_command(label="Load Chat...", command=self.load_chat)
         file_menu.add_separator()
@@ -94,7 +103,7 @@ class ChatGUI:
         menu.add_cascade(label="View", menu=view)
         tools_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
         tools_menu.add_checkbutton(label="Enable local tools", variable=self.tools_enabled,
-                                   command=self._update_agent_label)
+                                   command=self._toggle_tools)
         tools_menu.add_command(label="Select Workspace...", command=self.select_workspace)
         menu.add_cascade(label="Tools", menu=tools_menu)
         self.skills_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
@@ -140,7 +149,7 @@ class ChatGUI:
             activestyle="none", font=("Segoe UI", 10), exportselection=False)
         self.session_list.pack(fill="both", expand=True, padx=8)
         self.session_list.bind("<<ListboxSelect>>", self._select_session)
-        self._button(self.sidebar, "Settings", self.edit_system_prompt,
+        self._button(self.sidebar, "Settings", self.open_settings,
                      bg=self.SIDEBAR, activebackground="#2a2a2a", anchor="w").pack(
                          fill="x", padx=10, pady=(8, 16))
 
@@ -155,7 +164,7 @@ class ChatGUI:
         self.title_label = tk.Label(header, text="New chat", bg=self.BG, fg=self.TEXT,
                                     font=("Segoe UI", 11, "bold"), anchor="w")
         self.title_label.pack(side="left", padx=4)
-        self.model_label = tk.Label(header, text="gemma-3-1b-it", bg=self.BG,
+        self.model_label = tk.Label(header, text=os.path.basename(self.model_path), bg=self.BG,
                                     fg=self.MUTED, font=("Segoe UI", 9), anchor="e")
         self.model_label.pack(side="right", padx=24)
         self.agent_label = tk.Label(header, text="Tools on · 0 skills", bg=self.BG,
@@ -212,7 +221,7 @@ class ChatGUI:
         self.root.bind("<Control-n>", lambda _e: self.new_chat())
         self.root.bind("<Control-b>", lambda _e: self.toggle_sidebar())
         self.root.bind("<Control-o>", lambda _e: self.attach_files())
-        self.root.bind("<Control-p>", lambda _e: self.edit_system_prompt())
+        self.root.bind("<Control-p>", lambda _e: self.open_settings())
         self.root.bind("<Control-z>", lambda _e: self.on_stop())
 
     def toggle_sidebar(self) -> None:
@@ -259,6 +268,10 @@ class ChatGUI:
         count = len(self.enabled_skill_names)
         self.agent_label.configure(text=f"{tools} · {count} skill{'s' if count != 1 else ''}")
 
+    def _toggle_tools(self) -> None:
+        self._update_agent_label()
+        self._persist_settings()
+
     def reload_skills(self) -> None:
         self.skills = discover_skills(self.app_dir)
         available = {skill.name.casefold() for skill in self.skills}
@@ -272,12 +285,37 @@ class ChatGUI:
         if os.name == "nt":
             os.startfile(path)
 
+    def _load_settings(self) -> dict[str, Any]:
+        try:
+            with open(self.settings_file, "r", encoding="utf-8") as settings_file:
+                data = json.load(settings_file)
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _persist_settings(self) -> None:
+        settings = {
+            "model_path": self.model_path,
+            "ocr_model_dir": self.ocr_model_dir,
+            "workspace_dir": self.workspace_dir,
+            "system_prompt": self.system_prompt,
+            "tools_enabled": self.tools_enabled.get(),
+        }
+        try:
+            temp_path = self.settings_file + ".tmp"
+            with open(temp_path, "w", encoding="utf-8") as settings_file:
+                json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+            os.replace(temp_path, self.settings_file)
+        except OSError:
+            pass
+
     def select_workspace(self) -> None:
         path = filedialog.askdirectory(title="Select workspace for local tools",
                                        initialdir=self.workspace_dir)
         if path:
             self.workspace_dir = os.path.abspath(path)
             self._update_agent_label()
+            self._persist_settings()
 
     def _on_input_return(self, event: tk.Event) -> str | None:
         if event.state & 0x0001:
@@ -520,25 +558,13 @@ class ChatGUI:
         self.attachments.remove(path)
         self._refresh_attachment_row()
 
-    def _attachment_context(self) -> str:
-        chunks = []
-        for path in self.attachments:
-            try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as attached_file:
-                    text = attached_file.read(12000)
-                chunks.append(f"\n\n--- Attached file: {os.path.basename(path)} ---\n{text}")
-            except Exception:
-                chunks.append(f"\n\n[Attached file: {os.path.basename(path)}; "
-                              "contents could not be read as text]")
-        return "".join(chunks)
-
     def on_send(self) -> None:
         if self.gen_thread and self.gen_thread.is_alive():
             return
         prompt = "" if self.placeholder_visible else self.input_text.get("1.0", tk.END).strip()
         if not prompt or not self.current_session:
             return
-        prompt_for_model = prompt + self._attachment_context()
+        attached_paths = list(self.attachments)
         previous: list[Tuple[str, str]] = []
         messages = self.current_session["messages"]
         for index, message in enumerate(messages):
@@ -549,7 +575,7 @@ class ChatGUI:
         if self.current_session["title"] == "New chat":
             self.current_session["title"] = prompt[:34] + ("…" if len(prompt) > 34 else "")
             self.title_label.config(text=self.current_session["title"])
-        self.history_data.append({"user": prompt_for_model, "assistant": ""})
+        self.history_data.append({"user": prompt, "assistant": ""})
         self.input_text.delete("1.0", tk.END)
         self.placeholder_visible = False
         self.attachments.clear()
@@ -562,18 +588,29 @@ class ChatGUI:
         self.queue = queue.Queue()
         session = self.current_session
         self.gen_thread = threading.Thread(target=self._worker_generate,
-                                           args=(prompt_for_model, previous, session),
+                                           args=(prompt, attached_paths, previous, session),
                                            daemon=True)
         self.gen_thread.start()
         self.chat_canvas.after(35, self._process_queue)
 
-    def _worker_generate(self, prompt: str, history: List[Tuple[str, str]],
+    def _worker_generate(self, prompt: str, attachments: list[str],
+                         history: List[Tuple[str, str]],
                          session: dict[str, Any]) -> None:
         last = ""
         visible = ""
         tool_calls = 0
         started = time.perf_counter()
         try:
+            if attachments:
+                from ocr_utils import attachment_context
+
+                context = attachment_context(
+                    attachments,
+                    self.ocr_model_dir,
+                    lambda message: self.queue.put(("status", message)),
+                )
+                prompt += context
+                self.history_data[-1]["user"] = prompt
             from llm_utils import respond
             from server_backend import server_agent_respond, server_available
             enabled_skills = [skill for skill in self.skills
@@ -660,6 +697,7 @@ class ChatGUI:
         if path:
             self.model_path = path
             self.model_label.config(text=os.path.basename(path))
+            self._persist_settings()
 
     def save_chat(self) -> None:
         if not self.current_session or not self.current_session["messages"]:
@@ -702,6 +740,106 @@ class ChatGUI:
                                         initialvalue=self.system_prompt, parent=self.root)
         if prompt is not None:
             self.system_prompt = prompt.strip() or "You are a helpful assistant."
+            self._persist_settings()
+
+    def open_settings(self) -> None:
+        if self.gen_thread and self.gen_thread.is_alive():
+            messagebox.showinfo("Settings", "Wait for the current response to finish first.")
+            return
+
+        dialog = tk.Toplevel(self.root, bg=self.SIDEBAR)
+        dialog.title("Settings")
+        dialog.geometry("700x560")
+        dialog.minsize(620, 500)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        content = tk.Frame(dialog, bg=self.SIDEBAR)
+        content.pack(fill="both", expand=True, padx=24, pady=20)
+        tk.Label(content, text="Settings", bg=self.SIDEBAR, fg=self.TEXT,
+                 font=("Segoe UI", 18, "bold"), anchor="w").pack(fill="x", pady=(0, 18))
+
+        chat_var = tk.StringVar(value=self.model_path)
+        ocr_var = tk.StringVar(value=self.ocr_model_dir)
+        workspace_var = tk.StringVar(value=self.workspace_dir)
+        tools_var = tk.BooleanVar(value=self.tools_enabled.get())
+
+        def path_row(label_text: str, variable: tk.StringVar, browse_command) -> None:
+            tk.Label(content, text=label_text, bg=self.SIDEBAR, fg=self.MUTED,
+                     font=("Segoe UI", 10), anchor="w").pack(fill="x", pady=(7, 4))
+            row = tk.Frame(content, bg=self.SIDEBAR)
+            row.pack(fill="x")
+            tk.Entry(row, textvariable=variable, bg=self.PANEL, fg=self.TEXT,
+                     insertbackground="white", relief="flat", bd=0,
+                     font=("Segoe UI", 10)).pack(side="left", fill="x", expand=True,
+                                                  ipady=8, padx=(0, 8))
+            self._button(row, "Browse", browse_command, padx=14, pady=8).pack(side="right")
+
+        def browse_chat() -> None:
+            selected = filedialog.askopenfilename(parent=dialog, title="Select GGUF chat model",
+                                                  filetypes=[("GGUF Model", "*.gguf"),
+                                                             ("All files", "*.*")])
+            if selected:
+                chat_var.set(selected)
+
+        def browse_ocr() -> None:
+            selected = filedialog.askdirectory(parent=dialog,
+                                               title="Select PP-OCRv6 model folder",
+                                               initialdir=ocr_var.get() or self.app_dir)
+            if selected:
+                ocr_var.set(selected)
+
+        def browse_workspace() -> None:
+            selected = filedialog.askdirectory(parent=dialog, title="Select tools workspace",
+                                               initialdir=workspace_var.get() or self.app_dir)
+            if selected:
+                workspace_var.set(selected)
+
+        path_row("Chat model (.gguf)", chat_var, browse_chat)
+        path_row("Attachment OCR model folder (PP-OCRv6 Small)", ocr_var, browse_ocr)
+        tk.Label(content, text="Leave blank to use the OCR model bundled in the EXE.",
+                 bg=self.SIDEBAR, fg=self.DIM, font=("Segoe UI", 9), anchor="w").pack(fill="x")
+        path_row("Local tools workspace", workspace_var, browse_workspace)
+
+        tk.Label(content, text="System prompt", bg=self.SIDEBAR, fg=self.MUTED,
+                 font=("Segoe UI", 10), anchor="w").pack(fill="x", pady=(12, 4))
+        prompt_text = tk.Text(content, height=5, wrap="word", bg=self.PANEL, fg=self.TEXT,
+                              insertbackground="white", relief="flat", bd=0,
+                              padx=10, pady=8, font=("Segoe UI", 10))
+        prompt_text.insert("1.0", self.system_prompt)
+        prompt_text.pack(fill="both", expand=True)
+        tk.Checkbutton(content, text="Enable local tools", variable=tools_var,
+                       bg=self.SIDEBAR, fg=self.TEXT, selectcolor=self.PANEL,
+                       activebackground=self.SIDEBAR, activeforeground=self.TEXT,
+                       font=("Segoe UI", 10)).pack(anchor="w", pady=(12, 5))
+
+        actions = tk.Frame(content, bg=self.SIDEBAR)
+        actions.pack(fill="x", pady=(10, 0))
+
+        def save() -> None:
+            from ocr_utils import validate_model_dir
+
+            ocr_path = ocr_var.get().strip()
+            valid, detail = validate_model_dir(ocr_path)
+            if not valid:
+                messagebox.showerror("Invalid OCR model folder", detail, parent=dialog)
+                return
+            self.model_path = chat_var.get().strip() or self.model_path
+            self.ocr_model_dir = ocr_path
+            self.workspace_dir = workspace_var.get().strip() or self.app_dir
+            self.system_prompt = (prompt_text.get("1.0", tk.END).strip()
+                                  or "You are a helpful assistant.")
+            self.tools_enabled.set(tools_var.get())
+            self.model_label.configure(text=os.path.basename(self.model_path))
+            self._update_agent_label()
+            self._persist_settings()
+            dialog.destroy()
+
+        self._button(actions, "Save", save, bg="#f4f4f4", fg="#111111",
+                     activebackground="#d8d8d8", activeforeground="#111111",
+                     padx=22, pady=9).pack(side="right")
+        self._button(actions, "Cancel", dialog.destroy, bg=self.SIDEBAR,
+                     activebackground="#2a2a2a", padx=18, pady=9).pack(side="right", padx=8)
 
     def show_about(self) -> None:
         messagebox.showinfo("About Local LLM Notepad",

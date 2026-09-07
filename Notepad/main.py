@@ -80,6 +80,20 @@ def run_tool_self_test(model_path: str, workspace: str, output_path: str) -> Non
     with open(output_path, "w", encoding="utf-8") as output_file:
         json.dump(result, output_file, ensure_ascii=False)
 
+
+def run_ocr_self_test(model_dir: str, image_path: str, output_path: str) -> None:
+    from ocr_utils import extract_file_text
+
+    result = {"ok": False}
+    try:
+        text = extract_file_text(image_path, model_dir)
+        expected = ("Local_LLM_Notepad", "Icon.png", "gemma-3-1b")
+        result = {"ok": all(value in text for value in expected), "text": text}
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        json.dump(result, output_file, ensure_ascii=False, indent=2)
+
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--self-test":
         run_self_test(sys.argv[2], sys.argv[3])
@@ -87,5 +101,7 @@ if __name__ == "__main__":
         run_agent_self_test(sys.argv[2])
     elif len(sys.argv) == 5 and sys.argv[1] == "--tool-self-test":
         run_tool_self_test(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif len(sys.argv) == 5 and sys.argv[1] == "--ocr-self-test":
+        run_ocr_self_test(sys.argv[2], sys.argv[3], sys.argv[4])
     else:
         run_app()

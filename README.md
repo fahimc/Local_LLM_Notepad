@@ -41,7 +41,14 @@ skills are bundled.
 
 📎 Attachments
 
-Attach text-based files from the composer. Their contents are included with the prompt and the attached filenames remain visible as removable chips.
+Attach text files, screenshots, photos, or PDFs from the composer. Images and scanned PDF
+pages are translated to text locally with the CPU-only PP-OCRv6 Small model through ONNX
+Runtime. No CUDA, GPU, internet connection, or separate OCR installation is required.
+
+⚙️ Settings
+
+Choose the GGUF chat model, attachment OCR model folder, tools workspace, system prompt,
+and local-tools toggle from one Settings window. Choices are remembered beside the EXE.
 
 💾 Save/Load chats
 
@@ -54,7 +61,7 @@ CPU‑only by default for max compatibility.
 🎹 Hot‑keys
 
 Enter sends, Shift + Enter adds a line, Ctrl + B toggles chat history, Ctrl + N starts a
-new chat, Ctrl + O attaches files, Ctrl + Z stops, and Ctrl + P edits the system prompt.
+new chat, Ctrl + O attaches files, Ctrl + Z stops, and Ctrl + P opens Settings.
 
 
 # Quick Start
@@ -66,7 +73,8 @@ Copy the EXE and a compatible GGUF model (e.g. gemma-3-1b-it-Q4_K_M.gguf) onto 
 Double-click the EXE, then use File > Select Model to choose a compatible GGUF. The
 runtime and its native libraries are embedded in the EXE; the model remains a separate file.
 
-Need another model? Use File ▸ Select Model… and point to a different GGUF.
+Need another model? Open Settings and choose a different GGUF. The bundled OCR model works
+without configuration; an external PP-OCRv6 Small model folder can also be selected there.
 
 
 # Download links:
@@ -129,12 +137,14 @@ The source build uses a current `llama-cpp-python` runtime so recent GGUF model 
 
 ### 3. Bundle everything
 
-$ pyinstaller --onefile --noconsole --additional-hooks-dir=. --add-binary "..\.vendor\llama.cpp-k2\build\bin\Release\*;k2_runtime" --add-data "skills;skills" main.py
+$ pyinstaller --clean --noconfirm --onefile --noconsole --name Local_LLM_Notepad-portable --additional-hooks-dir=. --exclude-module torch --exclude-module torchvision --exclude-module triton --exclude-module transformers --exclude-module tensorflow --add-binary "..\.vendor\llama.cpp-k2\build\bin\Release\*;k2_runtime" --add-data "skills;skills" main.py
 
 The `k2_runtime` folder must contain `llama-completion.exe`, `llama-server.exe`, and their
 native DLLs compiled from the MBZUAI-IFM `model/K2Horizon` branch. The server provides native
 streaming tool calls and keeps the selected model loaded between prompts. The K2-specific
 tokenizer workaround is applied only when the selected filename contains `K2-Horizon`.
+RapidOCR, ONNX Runtime, PyMuPDF, and the PP-OCRv6 Small detector/classifier/recognizer files
+are embedded in the same EXE for CPU-only image and scanned-PDF attachment reading.
 
 ### 4. Grab `dist/Local_LLM_Notepad-portable.exe`
 

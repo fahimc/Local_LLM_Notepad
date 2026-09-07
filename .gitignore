@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 chat_sessions.json
 chat_sessions.json.tmp
+app_settings.json
+app_settings.json.tmp
 Notepad/build/
 Notepad/dist/
 Notepad/*.spec
