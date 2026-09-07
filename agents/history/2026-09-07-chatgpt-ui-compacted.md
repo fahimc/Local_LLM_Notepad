@@ -13,6 +13,9 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Preserved model selection, system prompt editing, stop generation, JSON chat import/export, and portable local-runtime behavior.
 - Made the model import lazy so the UI can launch when optional runtime dependencies are absent; generation reports the runtime error instead.
 - Updated README feature documentation and shortcuts.
+- Replaced the broken `llama_cpp_agent` dependency path with direct `llama-cpp-python` chat completion streaming.
+- Pinned `llama-cpp-python==0.1.85` for compatibility with the original Python 3.7 portable-build environment and improved the missing-runtime message.
+- Resized composer controls into consistent `Attach` and `Send` buttons.
 
 ## Verification
 
@@ -20,6 +23,8 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - `git diff --check` passes.
 - `python Notepad/main.py` launched without a traceback in the available environment.
 - Commit `34665ac` pushed to `git@github.com:fahimc/Local_LLM_Notepad.git` on `main`.
+- Simulated `respond()` streaming test passes through the direct llama-cpp adapter.
+- Latest fix commit `a135c88` pushed to `main`.
 
 ## Known limitations / follow-ups
 
@@ -29,4 +34,4 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 
 ## Resume point
 
-Continue from commit `34665ac` in `Notepad/chat_gui.py`. Install/build the existing runtime dependencies and run the app with a GGUF model to validate streaming and attachment context end-to-end.
+Continue from commit `a135c88` in `Notepad/chat_gui.py`. Install `requirements.txt` and run the app with a GGUF model to validate streaming and attachment context end-to-end.
