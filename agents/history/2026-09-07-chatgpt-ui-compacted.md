@@ -27,6 +27,8 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Simulated `respond()` streaming test passes through the direct llama-cpp adapter.
 - Latest fix commit `a135c88` pushed to `main`.
 - Verified the real `llm_utils` import prints `llama runtime ready`, then relaunched the desktop app successfully.
+- Built `Notepad/dist/Local_LLM_Notepad-portable.exe` with PyInstaller 5.13.2 as a one-file, no-console Windows executable (22,353,455 bytes; SHA-256 `CA718EC6C37FAC4A3D2F0D47652FFDE1196DB259F6B628F8A98F79EB80B13C7A`).
+- Launched the compiled executable and verified a running `Local LLM Notepad` window/process.
 
 ## Known limitations / follow-ups
 
