@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import os
+import typing
 from typing import List, Tuple
+from typing_extensions import OrderedDict
+
+# llama-cpp-python 0.1.85 imports OrderedDict from typing. Some Python 3.7
+# distributions do not expose that alias even though the package supports 3.7.
+if not hasattr(typing, "OrderedDict"):
+    typing.OrderedDict = OrderedDict
 
 from llama_cpp import Llama
 

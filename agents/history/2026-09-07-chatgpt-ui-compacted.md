@@ -16,6 +16,7 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Replaced the broken `llama_cpp_agent` dependency path with direct `llama-cpp-python` chat completion streaming.
 - Pinned `llama-cpp-python==0.1.85` for compatibility with the original Python 3.7 portable-build environment and improved the missing-runtime message.
 - Resized composer controls into consistent `Attach` and `Send` buttons.
+- Installed `llama-cpp-python==0.1.85` in the active Python 3.7 environment and added a `typing.OrderedDict` compatibility shim required by that runtime on this Windows Python distribution.
 
 ## Verification
 
@@ -25,6 +26,7 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Commit `34665ac` pushed to `git@github.com:fahimc/Local_LLM_Notepad.git` on `main`.
 - Simulated `respond()` streaming test passes through the direct llama-cpp adapter.
 - Latest fix commit `a135c88` pushed to `main`.
+- Verified the real `llm_utils` import prints `llama runtime ready`, then relaunched the desktop app successfully.
 
 ## Known limitations / follow-ups
 
