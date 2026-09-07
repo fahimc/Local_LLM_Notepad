@@ -8,6 +8,7 @@ def run_self_test(model_path: str, output_path: str) -> None:
     from llm_utils import respond
 
     answer = ""
+    chunks = 0
     try:
         for answer in respond(
             "Reply with exactly READY",
@@ -16,8 +17,12 @@ def run_self_test(model_path: str, output_path: str) -> None:
             max_tokens=128,
             temperature=0.0,
         ):
-            pass
-        result = {"ok": answer.strip() == "READY", "answer": answer.strip()}
+            chunks += 1
+        result = {
+            "ok": answer.strip() == "READY" and chunks > 1,
+            "answer": answer.strip(),
+            "stream_chunks": chunks,
+        }
     except Exception as exc:
         result = {"ok": False, "error": str(exc)}
     with open(output_path, "w", encoding="utf-8") as output_file:

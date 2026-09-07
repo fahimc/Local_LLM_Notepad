@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import os
 import subprocess
 import sys
@@ -115,19 +116,89 @@ def _respond_via_cli(
                 stdin=subprocess.DEVNULL,
                 creationflags=creation_flags,
             )
-            raw = process.stdout.read() if process.stdout else b""
+            is_k2 = "k2-horizon" in os.path.basename(model_path).lower()
+            think_marker = "</ifm|think>"
+            end_markers = (
+                "[end of text]",
+                "<|endoftext|>",
+                "<|ifm|im_end|>",
+                "<|eot_id|>",
+            )
+            raw_text = ""
+            pending = ""
+            answer = ""
+            answer_started = not is_k2
+            stopped_at_marker = False
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+
+            def flush_safe_text() -> Iterator[str]:
+                nonlocal pending, answer, stopped_at_marker
+                marker_positions = [
+                    (pending.find(marker), marker)
+                    for marker in end_markers
+                    if marker in pending
+                ]
+                if marker_positions:
+                    position, _marker = min(marker_positions, key=lambda item: item[0])
+                    safe = pending[:position]
+                    pending = ""
+                    stopped_at_marker = True
+                else:
+                    held = 0
+                    for marker in end_markers:
+                        for size in range(1, min(len(marker), len(pending)) + 1):
+                            if pending.endswith(marker[:size]):
+                                held = max(held, size)
+                    safe = pending[:-held] if held else pending
+                    pending = pending[-held:] if held else ""
+                if safe:
+                    if not answer:
+                        safe = safe.lstrip()
+                    if safe:
+                        answer += safe
+                        yield answer
+
+            if process.stdout:
+                while not stopped_at_marker:
+                    chunk = process.stdout.read(1)
+                    if not chunk:
+                        break
+                    character = decoder.decode(chunk)
+                    if not character:
+                        continue
+                    if not answer_started:
+                        raw_text += character
+                        if think_marker in raw_text:
+                            answer_started = True
+                            pending += raw_text.split(think_marker, 1)[1]
+                            raw_text = ""
+                        elif len(raw_text) > len(think_marker):
+                            raw_text = raw_text[-len(think_marker):]
+                        else:
+                            continue
+                    else:
+                        pending += character
+                    yield from flush_safe_text()
+
+            if answer_started and pending and not stopped_at_marker:
+                cleaned_tail = _clean_cli_output(pending)
+                if cleaned_tail:
+                    answer += cleaned_tail
+                    yield answer
             return_code = process.wait()
             error_file.seek(0)
             diagnostics = error_file.read().decode("utf-8", errors="replace")
 
-        output = _clean_cli_output(raw.decode("utf-8", errors="replace"))
         if return_code != 0:
             useful_lines = [line.strip() for line in diagnostics.splitlines() if line.strip()]
             detail = useful_lines[-1] if useful_lines else f"runtime exited with code {return_code}"
             raise RuntimeError(detail)
-        if not output:
+        if not answer and raw_text:
+            answer = _clean_cli_output(raw_text)
+            if answer:
+                yield answer
+        if not answer:
             raise RuntimeError("The model completed without returning an answer.")
-        yield output
     finally:
         if process and process.poll() is None:
             process.terminate()

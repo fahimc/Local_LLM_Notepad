@@ -21,6 +21,14 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Built MBZUAI-IFM's `model/K2Horizon` llama.cpp branch at commit `35999d101` and embedded its CLI plus native DLLs in the one-file executable.
 - Added a packaged CLI backend with chat-template handling, K2's Windows tokenizer workaround, reasoning-marker cleanup, conversation context, and a Python fallback for source environments.
 - Added `--self-test MODEL OUTPUT_JSON` to the executable for deterministic packaged inference verification.
+- Reworked the conversation surface to closely match the supplied ChatGPT reference: pure-black
+  canvas, hidden-by-default chat-history drawer, rounded user bubbles, unboxed assistant text,
+  elapsed-generation labels, compact `+` composer control, and a clear send arrow. Voice and
+  Grammarly controls were intentionally omitted.
+- Added final-answer streaming to the bundled K2 CLI backend while filtering K2 private-reasoning
+  and end-of-generation markers. Unicode output is decoded incrementally.
+- Added lightweight Markdown headings/bold rendering and fenced code panels with a working Copy
+  button.
 
 ## Verification
 
@@ -38,10 +46,18 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Source-mode inference against `I:/Model/K2-Horizon-1B-BF16.gguf` returned exactly `READY`.
 - Final one-file executable self-test against the same model returned `{"ok": true, "answer": "READY"}` with exit code 0.
 - Final artifact is 35,320,718 bytes with SHA-256 `3C3E9A5C39C8B2B25CCDCF7E187115C3297C925E464E6703297EBD9A886EAC94`; the GUI process was relaunched successfully.
+- Source inference against `I:/Model/K2-Horizon-1B-BF16.gguf` produced six accumulated stream
+  updates and exactly `READY`, with no reasoning/end markers exposed.
+- Minimum-window UI verification at 850x560 confirmed the attachment button, send button, and
+  fenced-code Copy button are mapped while the history drawer starts hidden.
+- Rebuilt `Notepad/dist/Local_LLM_Notepad-portable.exe`; its packaged self-test returned
+  `{"ok": true, "answer": "READY", "stream_chunks": 6}`. The artifact is 35,300,461 bytes with
+  SHA-256 `5211D83B288013F53823AB4670DF63E886F029C6C61BDEC3A8B9E7B43D1FEC1B`.
 
 ## Known limitations / follow-ups
 
-- Visual native-window automation was unavailable in the current desktop session, but backend verification now includes real packaged inference rather than launch-only smoke testing.
+- Programmatic UI geometry and widget tests are available; native screenshot focus was unreliable
+  while another application was active, but backend verification includes real packaged inference.
 - Attachments currently inject readable text files into the prompt; binary/image understanding is not implemented because the bundled default model is text-only.
 - The legacy source-word highlighting, find, and zoom controls were removed from the redesigned primary UI and can be restored if needed.
 

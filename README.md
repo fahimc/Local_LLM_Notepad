@@ -19,15 +19,17 @@ Drop the one‑file EXE and your .gguf model onto a flash drive; run on any Wind
 
 🪶 ChatGPT-style UI
 
-Dark chat workspace with a session sidebar, user and assistant message cards, streaming answers, and a familiar bottom composer.
+Focused black chat workspace with a collapsible session sidebar, rounded user bubbles,
+unboxed assistant answers, elapsed generation time, and a compact bottom composer.
+
+💬 Live streaming and formatted code
+
+Answers appear as they are generated. Markdown headings and bold text are rendered after
+completion, while fenced code blocks get their own one-click Copy button.
 
 📎 Attachments
 
 Attach text-based files from the composer. Their contents are included with the prompt and the attached filenames remain visible as removable chips.
-
-🔍 Source‑word under‑lining
-
-Every word or number you wrote in your prompt is automatically bold‑underlined in the model’s reply. Ctrl+left click on them to view them in a separate window. Handy for fact‑checking summaries, tables, or data extractions.
 
 💾 Save/Load chats
 
@@ -39,16 +41,18 @@ CPU‑only by default for max compatibility.
 
 🎹 Hot‑keys
 
-Ctrl + Enter to send, Ctrl + O to attach files, Ctrl + Z to stop, and Ctrl + P to edit the system prompt.
+Enter sends, Shift + Enter adds a line, Ctrl + B toggles chat history, Ctrl + N starts a
+new chat, Ctrl + O attaches files, Ctrl + Z stops, and Ctrl + P edits the system prompt.
 
 
 # Quick Start
 
-Download Local_LLM_Notepad-portable.exe from the Releases page.
+Build or copy `Notepad/dist/Local_LLM_Notepad-portable.exe`.
 
 Copy the EXE and a compatible GGUF model (e.g. gemma-3-1b-it-Q4_K_M.gguf) onto your USB.
 
-Double‑click the EXE on any Windows computer. First launch caches the model into RAM; subsequent prompts stream instantly.
+Double-click the EXE, then use File > Select Model to choose a compatible GGUF. The
+runtime and its native libraries are embedded in the EXE; the model remains a separate file.
 
 Need another model? Use File ▸ Select Model… and point to a different GGUF.
 
@@ -58,7 +62,7 @@ Need another model? Use File ▸ Select Model… and point to a different G
 
 | File | Link | Notes |
 |------|------|-------|
-| **Local_LLM_Notepad-portable.exe** | [Direct download (v1.0.1)](https://github.com/runzhouye/Local_LLM_Notepad/releases/tag/v1.0.1) | ~45 MB, contains everything needed to run LLM on Windows computer |
+| **Local_LLM_Notepad-portable.exe** | Build output: `Notepad/dist/` | One-file app containing the UI and native inference runtime |
 | **gemma-3-1b-it-Q4_K_M.gguf** | [Hugging Face](https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/tree/main) | Fast CPU model (~0.8 GB) we recommend for first-time users. Achieves ~20 tokens/second on an i7-10750H CPU  ![HF_screenshot](Images/HF_screenshot_2.png)|
 | **Icon (optional)** | [Notepad icon PNG](https://upload.wikimedia.org/wikipedia/commons/c/c9/Windows_Notepad_icon.png) | Save as `Icon.png` next to the EXE and it will be used automatically |
 
@@ -70,17 +74,10 @@ Need another model? Use File ▸ Select Model… and point to a different G
 ![Portable One‑File Build](Images/Screenshot1.png)
 
 
-### Automated Source Highlighting (Ctrl + click)
+### Streaming responses and copyable code
 
-Every word, number you used in the prompt is bold‑underlined in the LLM answer.  
-
-Ctrl + click any under‑lined word to open a side window with every single prompt that contained it—great for tracing sources.
-
-![bold_text_demo](Images/bold_text_demo.gif)
-
-### Ctrl + S to Send text to LLM
-
-![CtrlS](Images/CtrlS.gif)
+The bundled runtime streams final-answer text into the conversation and hides private K2
+reasoning output. Fenced Markdown code is displayed in a dark code panel with a Copy button.
 
 ### Ctrl + Z to stop LLM generation
 
@@ -106,7 +103,7 @@ Ctrl + click any under‑lined word to open a side window with every single 
 # (Optional) Building Your Own Portable EXE
 ### 1. Clone
 
-$ git clone https://github.com/runzhouye/Local_LLM_Notepad.git
+$ git clone https://github.com/fahimc/Local_LLM_Notepad.git
 
 $ cd Local_LLM_Notepad
 
@@ -124,6 +121,6 @@ $ pyinstaller --onefile --noconsole --additional-hooks-dir=. --add-binary "..\.v
 
 The `k2_runtime` folder must contain the compiled `model/K2Horizon` branch from the MBZUAI-IFM llama.cpp fork. This runtime also supports standard GGUF architectures; the K2-specific tokenizer workaround is applied only when the selected filename contains `K2-Horizon`.
 
-### 4. Grab dist/Local_LLM_Notepad.exe (≈45 MB)
+### 4. Grab `dist/Local_LLM_Notepad-portable.exe`
 
 
