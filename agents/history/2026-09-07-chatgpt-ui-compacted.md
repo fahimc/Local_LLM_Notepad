@@ -29,6 +29,8 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Verified the real `llm_utils` import prints `llama runtime ready`, then relaunched the desktop app successfully.
 - Built `Notepad/dist/Local_LLM_Notepad-portable.exe` with PyInstaller 5.13.2 as a one-file, no-console Windows executable (22,353,455 bytes; SHA-256 `CA718EC6C37FAC4A3D2F0D47652FFDE1196DB259F6B628F8A98F79EB80B13C7A`).
 - Launched the compiled executable and verified a running `Local LLM Notepad` window/process.
+- Fixed composer clipping by packing the fixed-width controls before the expanding text editor; geometry verification at the 850x560 minimum window showed both `Attach` and `Send` mapped at 69x30 pixels.
+- Rebuilt and launched the corrected executable; replacement SHA-256 is `18CCAC276E9D439C87F85B2F685E75DF714F6B47C183D4A2339510648C11804A`.
 
 ## Known limitations / follow-ups
 

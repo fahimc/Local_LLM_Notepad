@@ -152,15 +152,19 @@ class ChatGUI:
         self.input_text = tk.Text(box, height=3, wrap="word", bg="#303030", fg=self.TEXT,
                                   insertbackground="white", relief="flat", bd=0,
                                   highlightthickness=0, padx=14, pady=11, font=("Segoe UI", 11))
-        self.input_text.pack(side="left", fill="both", expand=True)
         tools = tk.Frame(box, bg="#303030")
         tools.pack(side="right", fill="y", padx=7, pady=7)
-        self._button(tools, "Attach", self.attach_files, bg="#303030", activebackground="#454545",
-                     width=7, height=1, font=("Segoe UI", 9), padx=8, pady=5).pack(side="left")
+        self.attach_button = self._button(tools, "Attach", self.attach_files, bg="#303030",
+                                          activebackground="#454545", width=7, height=1,
+                                          font=("Segoe UI", 9), padx=8, pady=5)
+        self.attach_button.pack(side="left")
         self.send_button = self._button(tools, "Send", self.on_send, bg=self.ACCENT,
                                         activebackground="#0d8c6d", width=7, height=1,
                                         font=("Segoe UI", 9, "bold"), padx=8, pady=5)
         self.send_button.pack(side="left", padx=(5, 0))
+        # Pack fixed-width controls before the expanding editor so Tk always
+        # reserves space for both buttons, even at the minimum window width.
+        self.input_text.pack(side="left", fill="both", expand=True)
         tk.Label(composer, text="Local LLM Notepad can make mistakes. Check important information.",
                  bg=self.BG, fg="#777777", font=("Segoe UI", 8)).pack(pady=(8, 0))
         self.root.bind("<Control-Return>", lambda e: self.on_send())
