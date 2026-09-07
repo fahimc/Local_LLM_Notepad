@@ -110,17 +110,19 @@ $ git clone https://github.com/runzhouye/Local_LLM_Notepad.git
 
 $ cd Local_LLM_Notepad
 
-### 2. Create an environment and install the runtime
+### 2. Create a Python 3.12 environment and install the runtime
 
-$ python -m venv .venv && .\.venv\Scripts\activate
+$ py -3.12 -m venv .venv && .\.venv\Scripts\activate
 
 $ python -m pip install -r requirements.txt
 
-The source build uses `llama-cpp-python` directly. The requirements file pins a version compatible with the older Python runtime used by the original portable build. If you use a newer Python version, you can remove the version pin and install the latest `llama-cpp-python` instead.
+The source build uses a current `llama-cpp-python` runtime so recent GGUF model architectures and chat templates are supported.
 
 ### 3. Bundle everything
 
-$ pyinstaller --onefile --noconsole --additional-hooks-dir=. main.py
+$ pyinstaller --onefile --noconsole --additional-hooks-dir=. --add-binary "..\.vendor\llama.cpp-k2\build\bin\Release\*;k2_runtime" main.py
+
+The `k2_runtime` folder must contain the compiled `model/K2Horizon` branch from the MBZUAI-IFM llama.cpp fork. This runtime also supports standard GGUF architectures; the K2-specific tokenizer workaround is applied only when the selected filename contains `K2-Horizon`.
 
 ### 4. Grab dist/Local_LLM_Notepad.exe (≈45 MB)
 

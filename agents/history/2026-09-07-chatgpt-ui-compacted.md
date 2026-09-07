@@ -17,6 +17,10 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Pinned `llama-cpp-python==0.1.85` for compatibility with the original Python 3.7 portable-build environment and improved the missing-runtime message.
 - Resized composer controls into consistent `Attach` and `Send` buttons.
 - Installed `llama-cpp-python==0.1.85` in the active Python 3.7 environment and added a `typing.OrderedDict` compatibility shim required by that runtime on this Windows Python distribution.
+- Migrated builds to Python 3.12 and `llama-cpp-python==0.3.35`; standard llama.cpp still cannot load the newly released K2-Horizon architecture.
+- Built MBZUAI-IFM's `model/K2Horizon` llama.cpp branch at commit `35999d101` and embedded its CLI plus native DLLs in the one-file executable.
+- Added a packaged CLI backend with chat-template handling, K2's Windows tokenizer workaround, reasoning-marker cleanup, conversation context, and a Python fallback for source environments.
+- Added `--self-test MODEL OUTPUT_JSON` to the executable for deterministic packaged inference verification.
 
 ## Verification
 
@@ -31,13 +35,16 @@ Rework the portable Tkinter interface in `Notepad/chat_gui.py` into a ChatGPT-in
 - Launched the compiled executable and verified a running `Local LLM Notepad` window/process.
 - Fixed composer clipping by packing the fixed-width controls before the expanding text editor; geometry verification at the 850x560 minimum window showed both `Attach` and `Send` mapped at 69x30 pixels.
 - Rebuilt and launched the corrected executable; replacement SHA-256 is `18CCAC276E9D439C87F85B2F685E75DF714F6B47C183D4A2339510648C11804A`.
+- Source-mode inference against `I:/Model/K2-Horizon-1B-BF16.gguf` returned exactly `READY`.
+- Final one-file executable self-test against the same model returned `{"ok": true, "answer": "READY"}` with exit code 0.
+- Final artifact is 35,320,718 bytes with SHA-256 `3C3E9A5C39C8B2B25CCDCF7E187115C3297C925E464E6703297EBD9A886EAC94`; the GUI process was relaunched successfully.
 
 ## Known limitations / follow-ups
 
-- Visual native-window automation was unavailable in the current desktop session, so verification was launch/smoke based rather than screenshot based.
+- Visual native-window automation was unavailable in the current desktop session, but backend verification now includes real packaged inference rather than launch-only smoke testing.
 - Attachments currently inject readable text files into the prompt; binary/image understanding is not implemented because the bundled default model is text-only.
 - The legacy source-word highlighting, find, and zoom controls were removed from the redesigned primary UI and can be restored if needed.
 
 ## Resume point
 
-Continue from commit `a135c88` in `Notepad/chat_gui.py`. Install `requirements.txt` and run the app with a GGUF model to validate streaming and attachment context end-to-end.
+Use `Notepad/dist/Local_LLM_Notepad-portable.exe`. For rebuilds, compile the MBZUAI-IFM `model/K2Horizon` branch into `.vendor/llama.cpp-k2/build/bin/Release`, then use the updated PyInstaller command in README. Re-run the packaged `--self-test` after every backend or build change.

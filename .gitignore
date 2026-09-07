@@ -5,3 +5,5 @@ chat_sessions.json.tmp
 Notepad/build/
 Notepad/dist/
 Notepad/*.spec
+.venv-build/
+.vendor/
