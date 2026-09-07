@@ -17,25 +17,29 @@ Local LLM Notepad is an open-source, offline plug-and-play app for running local
 
 Drop the one‑file EXE and your .gguf model onto a flash drive; run on any Windows PC without admin rights.
 
-🪶 Clean UI
+🪶 ChatGPT-style UI
 
-Two‑pane layout: type prompts below, watch token‑streamed answers above—no extra chrome.
+Dark chat workspace with a session sidebar, user and assistant message cards, streaming answers, and a familiar bottom composer.
+
+📎 Attachments
+
+Attach text-based files from the composer. Their contents are included with the prompt and the attached filenames remain visible as removable chips.
 
 🔍 Source‑word under‑lining
 
 Every word or number you wrote in your prompt is automatically bold‑underlined in the model’s reply. Ctrl+left click on them to view them in a separate window. Handy for fact‑checking summaries, tables, or data extractions.
 
-💾 Save/Load chats
+💾 Save/Load chats
 
-One‑click JSON export keeps conversations with the model portable alongside the EXE.
+Sessions are kept locally beside the app in `chat_sessions.json`, and individual conversations can be exported/imported as JSON. No cloud sync is used.
 
 ⚡ Llama.cpp inside
 
 CPU‑only by default for max compatibility.
 
-🎹 Hot‑keys
+🎹 Hot‑keys
 
-Ctrl + S to send, Ctrl + Z to stop, Ctrl + F to find, Ctrl + X to clear chat history, Ctrl + Mouse‑Wheel zoom, etc.
+Ctrl + Enter to send, Ctrl + O to attach files, Ctrl + Z to stop, and Ctrl + P to edit the system prompt.
 
 
 # Quick Start

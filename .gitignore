@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+chat_sessions.json
+chat_sessions.json.tmp

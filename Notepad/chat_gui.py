@@ -3,666 +3,414 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
+import sys
 import threading
-from typing import List, Tuple
-import webbrowser
-
 import tkinter as tk
-import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, simpledialog, ttk  # noqa: F401 – same imports kept
-
-from llm_utils import respond  # ← the only new import compared with original
+from tkinter import filedialog, messagebox, simpledialog, ttk
+from typing import Any, List, Tuple
 
 __all__ = ["ChatGUI", "run_app"]
 
 
 class ChatGUI:
+    """A portable, ChatGPT-inspired front end for the local model."""
+
+    BG = "#212121"
+    SIDEBAR = "#171717"
+    PANEL = "#2f2f2f"
+    USER = "#343541"
+    TEXT = "#ececec"
+    MUTED = "#a7a7a7"
+    ACCENT = "#10a37f"
+
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("Local LLM Notepad")
-        root.configure(bg="white")
-
-        icon_path = "Icon.png"
-        if os.path.exists(icon_path):
-            try:
-                icon = tk.PhotoImage(file=icon_path)
-                root.iconphoto(True, icon)
-            except Exception as ex:
-                print(f"Icon load failed: {ex}")
-
-        # ─────────────────── State ───────────────────
-        self.system_prompt: str = "You are a helpful assistant."
-
-        # ─────────────────── Menus ───────────────────
-        menubar = tk.Menu(root)
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Select Model...", command=self.select_model)
-        file_menu.add_command(label="Save Chat...", command=self.save_chat)
-        file_menu.add_command(label="Load Chat...", command=self.load_chat)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=root.quit)
-        menubar.add_cascade(label="File", menu=file_menu)
-
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(label="Send", accelerator="Ctrl+S", command=self.on_send)
-        edit_menu.add_command(label="Find...", accelerator="Ctrl+F", command=self.open_find)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Edit System Prompt...", accelerator="Ctrl+P", command=self.edit_system_prompt)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Stop Generation", accelerator="Ctrl+Z", command=self.on_stop)
-        edit_menu.add_command(label="Clear History", accelerator="Ctrl+X", command=self.on_clear)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Toggle Bold/Underline", accelerator="Ctrl+D", command=self.toggle_word_style)
-        menubar.add_cascade(label="Edit", menu=edit_menu)
-
-        format_menu = tk.Menu(menubar, tearoff=0)
-        format_menu.add_command(label="Toggle Word Wrap", command=self.toggle_wrap)
-        menubar.add_cascade(label="Format", menu=format_menu)
-
-        view_menu = tk.Menu(menubar, tearoff=0)
-        view_menu.add_command(label="Zoom In", accelerator="Ctrl++", command=self.zoom_in)
-        view_menu.add_command(label="Zoom Out", accelerator="Ctrl+-", command=self.zoom_out)
-        menubar.add_cascade(label="View", menu=view_menu)
-
-        help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label="About", command=self.show_about)
-        menubar.add_cascade(label="About", menu=help_menu)
-        root.config(menu=menubar)
-
-        # ─────────────────── Layout ───────────────────
-        style = ttk.Style()
-        style.configure(
-            "Plain.TPanedwindow",
-            background="white",
-            borderwidth=0,
-            relief="flat",
-            sashwidth=4,
-        )
-        panes = ttk.PanedWindow(root, orient="vertical", style="Plain.TPanedwindow")
-        panes.pack(fill=tk.BOTH, expand=True)
-
-        # History
-        hist_frame = tk.Frame(root, bg="white")
-        self.history_text = tk.Text(
-            hist_frame,
-            wrap=tk.WORD,
-            state="disabled",
-            bg="white",
-            bd=0,
-            highlightthickness=0,
-        )
-
-        self.assistant_segments: list[tuple[str, str]] = []
-
-        self.bold_font = tkfont.Font(self.history_text, self.history_text.cget("font"))
-        self.bold_font.configure(weight="bold")
-        self.style_on = True
-        self._apply_word_style()
-
-        self.history_text.tag_config("find_highlight", background="yellow")
-        self.history_text.tag_config("user_word", font=self.bold_font, underline=True)
-        vscroll_hist = tk.Scrollbar(hist_frame, command=self.history_text.yview)
-        self.history_text.configure(yscrollcommand=vscroll_hist.set)
-        vscroll_hist.pack(side=tk.RIGHT, fill=tk.Y)
-        self.history_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        panes.add(hist_frame, weight=4)
-
-        # Input
-        inp_frame = tk.Frame(root, bg="white")
-        self.input_text = tk.Text(
-            inp_frame,
-            height=4,
-            wrap=tk.WORD,
-            bg="white",
-            bd=0,
-            highlightthickness=0,
-        )
-        vscroll_inp = tk.Scrollbar(inp_frame, command=self.input_text.yview)
-        self.input_text.configure(yscrollcommand=vscroll_inp.set)
-        vscroll_inp.pack(side=tk.RIGHT, fill=tk.Y)
-        self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        panes.add(inp_frame, weight=1)
-
-        # ─────────────────── Internals ───────────────────
+        self.root.title("Local LLM Notepad")
+        self.root.geometry("1180x760")
+        self.root.minsize(850, 560)
+        self.root.configure(bg=self.BG)
+        self.system_prompt = "You are a helpful assistant."
+        self.model_path = "gemma-3-1b-it-Q4_K_M.gguf"
+        self.session_file = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "chat_sessions.json")
+        self.sessions: list[dict[str, Any]] = []
+        self.current_session: dict[str, Any] | None = None
+        self.history_data: list[dict[str, str]] = []
+        self.attachments: list[str] = []
         self.queue: queue.Queue[str | None] = queue.Queue()
         self.gen_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
-        self.history_data: List[dict] = []
-        self._table_pattern = re.compile(
-            r"(\|[^\n]+\|\n\|[ \-:|]+\|\n(?:\|[^\n]+\|\n?)*)",
-            re.MULTILINE,
-        )
-        self.model_path = "gemma-3-1b-it-Q4_K_M.gguf"
-        self.search_start = "1.0"
+        self.assistant_label: tk.Label | None = None
+        self.assistant_text = ""
+        self._build_styles()
+        self._build_menu()
+        self._build_layout()
+        self._load_sessions()
+        if self.sessions:
+            self.current_session = self.sessions[0]
+            self.title_label.config(text=self.current_session["title"])
+            self._refresh_sessions()
+            self._render_chat()
+        else:
+            self.new_chat()
 
-        # Window for user prompts (created on first ctrl-click)
-        self.user_prompts_win: tk.Toplevel | None = None
-        self.user_prompts_text: tk.Text | None = None
-
-        # ────────── NEW: remember next search start for each word ──────────
-        self.next_pos: dict[str, str] = {}
-
-        # ─────────────────── Bindings ───────────────────
-        root.bind("<Control-s>", lambda e: self.on_send())
-        root.bind("<Control-f>", lambda e: self.open_find())
-        root.bind("<Control-p>", lambda e: self.edit_system_prompt())
-        root.bind("<Control-z>", lambda e: self.on_stop())
-        root.bind("<Control-x>", lambda e: self.on_clear())
-        root.bind("<Control-d>", lambda e: self.toggle_word_style())
-        root.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
-
-        # Ctrl+left-click on a green word
-        self.history_text.tag_bind(
-            "user_word", "<Control-Button-1>", self._on_ctrl_click_user_word
-        )
-
-    def save_chat(self):
-        if not self.history_data:
-            messagebox.showinfo("Save Chat", "Nothing to save yet.")
-            return
-
-        path = filedialog.asksaveasfilename(
-            title="Save Chat",
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        )
-        if not path:
-            return
-
+    def _build_styles(self) -> None:
+        style = ttk.Style()
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.history_data, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("Save Chat", f"Chat saved to:\n{path}")
-        except Exception as ex:
-            messagebox.showerror("Save Chat", f"Failed to save:\n{ex}")
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("Dark.TScrollbar", troughcolor=self.BG, background="#555555", bordercolor=self.BG)
 
-    def load_chat(self):
+    def _build_menu(self) -> None:
+        menu = tk.Menu(self.root, tearoff=0, bg=self.PANEL, fg=self.TEXT,
+                       activebackground="#555555", activeforeground="white")
+        file_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
+        file_menu.add_command(label="Select Model...", command=self.select_model)
+        file_menu.add_command(label="Save Current Chat...", command=self.save_chat)
+        file_menu.add_command(label="Load Chat...", command=self.load_chat)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menu.add_cascade(label="File", menu=file_menu)
+        edit = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
+        edit.add_command(label="Send", accelerator="Ctrl+Enter", command=self.on_send)
+        edit.add_command(label="Attach Files...", accelerator="Ctrl+O", command=self.attach_files)
+        edit.add_command(label="Edit System Prompt...", accelerator="Ctrl+P", command=self.edit_system_prompt)
+        edit.add_separator()
+        edit.add_command(label="Stop Generation", accelerator="Ctrl+Z", command=self.on_stop)
+        menu.add_cascade(label="Edit", menu=edit)
+        help_menu = tk.Menu(menu, tearoff=0, bg=self.PANEL, fg=self.TEXT)
+        help_menu.add_command(label="About", command=self.show_about)
+        menu.add_cascade(label="Help", menu=help_menu)
+        self.root.config(menu=menu)
+
+    def _button(self, parent: tk.Widget, text: str, command, **kwargs) -> tk.Button:
+        defaults = dict(bg=self.PANEL, fg=self.TEXT, activebackground="#454545",
+                        activeforeground="white", relief="flat", bd=0, cursor="hand2",
+                        padx=12, pady=7, font=("Segoe UI", 10))
+        defaults.update(kwargs)
+        return tk.Button(parent, text=text, command=command, **defaults)
+
+    def _build_layout(self) -> None:
+        shell = tk.Frame(self.root, bg=self.BG)
+        shell.pack(fill="both", expand=True)
+        sidebar = tk.Frame(shell, bg=self.SIDEBAR, width=270)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        tk.Label(sidebar, text="Local LLM", bg=self.SIDEBAR, fg="white",
+                 font=("Segoe UI", 14, "bold"), anchor="w").pack(fill="x", padx=18, pady=(20, 14))
+        self._button(sidebar, "+  New chat", self.new_chat, bg=self.SIDEBAR,
+                     activebackground="#2a2a2a", anchor="w", font=("Segoe UI", 10, "bold")).pack(fill="x", padx=10)
+        tk.Label(sidebar, text="YOUR CHATS", bg=self.SIDEBAR, fg="#777777",
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=18, pady=(24, 8))
+        list_frame = tk.Frame(sidebar, bg=self.SIDEBAR)
+        list_frame.pack(fill="both", expand=True, padx=8)
+        self.session_list = tk.Listbox(list_frame, bg=self.SIDEBAR, fg="#d1d1d1",
+                                       selectbackground="#343541", selectforeground="white",
+                                       relief="flat", bd=0, highlightthickness=0,
+                                       activestyle="none", font=("Segoe UI", 10), exportselection=False)
+        self.session_list.pack(fill="both", expand=True)
+        self.session_list.bind("<<ListboxSelect>>", self._select_session)
+        bottom = tk.Frame(sidebar, bg=self.SIDEBAR)
+        bottom.pack(fill="x", padx=10, pady=14)
+        self._button(bottom, "⚙  Settings", self.edit_system_prompt, bg=self.SIDEBAR,
+                     activebackground="#2a2a2a", anchor="w").pack(fill="x")
+        tk.Label(sidebar, text="Local and private", bg=self.SIDEBAR, fg="#777777",
+                 font=("Segoe UI", 8), anchor="w").pack(fill="x", padx=18, pady=(0, 14))
+
+        main = tk.Frame(shell, bg=self.BG)
+        main.pack(side="left", fill="both", expand=True)
+        header = tk.Frame(main, bg=self.BG, height=58)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        self.title_label = tk.Label(header, text="New chat", bg=self.BG, fg="white",
+                                    font=("Segoe UI", 12, "bold"), anchor="w")
+        self.title_label.pack(side="left", padx=26)
+        self.model_label = tk.Label(header, text="gemma-3-1b-it", bg=self.BG, fg=self.MUTED,
+                                    font=("Segoe UI", 9), anchor="e")
+        self.model_label.pack(side="right", padx=26)
+
+        chat_outer = tk.Frame(main, bg=self.BG)
+        chat_outer.pack(fill="both", expand=True, padx=12)
+        self.chat_canvas = tk.Canvas(chat_outer, bg=self.BG, highlightthickness=0, bd=0)
+        scroll = tk.Scrollbar(chat_outer, orient="vertical", command=self.chat_canvas.yview,
+                              bg="#555555", troughcolor=self.BG, activebackground="#777777",
+                              relief="flat", bd=0, highlightthickness=0)
+        self.chat_canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.chat_canvas.pack(side="left", fill="both", expand=True)
+        self.chat_frame = tk.Frame(self.chat_canvas, bg=self.BG)
+        self.chat_window = self.chat_canvas.create_window((0, 0), window=self.chat_frame, anchor="nw")
+        self.chat_frame.bind("<Configure>", lambda e: self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all")))
+        self.chat_canvas.bind("<Configure>", lambda e: self.chat_canvas.itemconfigure(self.chat_window, width=e.width))
+
+        composer = tk.Frame(main, bg=self.BG)
+        composer.pack(fill="x", padx=80, pady=(8, 28))
+        self.attachment_row = tk.Frame(composer, bg=self.BG)
+        self.attachment_row.pack(fill="x")
+        box = tk.Frame(composer, bg="#303030", highlightbackground="#555555", highlightthickness=1)
+        box.pack(fill="x")
+        self.input_text = tk.Text(box, height=3, wrap="word", bg="#303030", fg=self.TEXT,
+                                  insertbackground="white", relief="flat", bd=0,
+                                  highlightthickness=0, padx=14, pady=11, font=("Segoe UI", 11))
+        self.input_text.pack(side="left", fill="both", expand=True)
+        tools = tk.Frame(box, bg="#303030")
+        tools.pack(side="right", fill="y", padx=7, pady=7)
+        self._button(tools, "＋", self.attach_files, bg="#303030", activebackground="#454545",
+                     font=("Segoe UI", 17), padx=8, pady=1).pack(side="left")
+        self.send_button = self._button(tools, "↑", self.on_send, bg=self.ACCENT,
+                                        activebackground="#0d8c6d", font=("Segoe UI", 16, "bold"),
+                                        padx=10, pady=1)
+        self.send_button.pack(side="left", padx=(5, 0))
+        tk.Label(composer, text="Local LLM Notepad can make mistakes. Check important information.",
+                 bg=self.BG, fg="#777777", font=("Segoe UI", 8)).pack(pady=(8, 0))
+        self.root.bind("<Control-Return>", lambda e: self.on_send())
+        self.root.bind("<Control-o>", lambda e: self.attach_files())
+        self.root.bind("<Control-p>", lambda e: self.edit_system_prompt())
+        self.root.bind("<Control-z>", lambda e: self.on_stop())
+
+    def new_chat(self) -> None:
         if self.gen_thread and self.gen_thread.is_alive():
-            messagebox.showinfo("Please wait", "Cannot load while generating.")
             return
+        session = {"title": "New chat", "messages": []}
+        self.sessions.insert(0, session)
+        self.current_session = session
+        self.history_data = []
+        self.attachments.clear()
+        self._refresh_sessions()
+        self._render_chat()
+        self._persist_sessions()
+        self.input_text.focus_set()
 
-        path = filedialog.askopenfilename(
-            title="Load Chat",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        )
-        if not path:
-            return
-
+    def _load_sessions(self) -> None:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(self.session_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if not isinstance(data, list) or not all(
-                    isinstance(d, dict) and "user" in d and "assistant" in d for d in data
-            ):
-                raise ValueError("File does not contain valid chat history.")
-        except Exception as ex:
-            messagebox.showerror("Load Chat", f"Could not load chat:\n{ex}")
+            if isinstance(data, list):
+                self.sessions = [s for s in data if isinstance(s, dict) and isinstance(s.get("messages"), list)]
+        except (OSError, json.JSONDecodeError):
+            self.sessions = []
+
+    def _persist_sessions(self) -> None:
+        try:
+            temp_path = self.session_file + ".tmp"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(self.sessions, f, ensure_ascii=False, indent=2)
+            os.replace(temp_path, self.session_file)
+        except OSError:
+            # The app remains usable on read-only media such as protected USB drives.
+            pass
+
+    def _refresh_sessions(self) -> None:
+        self.session_list.delete(0, tk.END)
+        for session in self.sessions:
+            self.session_list.insert(tk.END, "  " + session["title"])
+        if self.current_session in self.sessions:
+            index = self.sessions.index(self.current_session)
+            self.session_list.selection_set(index)
+            self.session_list.see(index)
+
+    def _select_session(self, _event=None) -> None:
+        selection = self.session_list.curselection()
+        if not selection or (self.gen_thread and self.gen_thread.is_alive()):
             return
+        self.current_session = self.sessions[selection[0]]
+        self.history_data = []
+        messages = self.current_session["messages"]
+        for i, message in enumerate(messages):
+            if message["role"] == "user" and i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                self.history_data.append({"user": message["content"], "assistant": messages[i + 1]["content"]})
+        self.title_label.config(text=self.current_session["title"])
+        self._render_chat()
 
-        # wipe current session
-        self.on_clear()
+    def _render_chat(self) -> None:
+        for child in self.chat_frame.winfo_children():
+            child.destroy()
+        if not self.current_session or not self.current_session["messages"]:
+            welcome = tk.Frame(self.chat_frame, bg=self.BG)
+            welcome.pack(fill="x", pady=(110, 30))
+            tk.Label(welcome, text="How can I help you today?", bg=self.BG, fg="white",
+                     font=("Segoe UI", 23, "bold")).pack()
+            tk.Label(welcome, text="Ask a question or attach a document to get started.", bg=self.BG,
+                     fg=self.MUTED, font=("Segoe UI", 11)).pack(pady=(9, 0))
+        else:
+            for message in self.current_session["messages"]:
+                self._add_message(message["role"], message["content"])
+        self.chat_canvas.update_idletasks()
+        self.chat_canvas.yview_moveto(1.0)
+        self._refresh_attachment_row()
 
-        self.history_data = data
-        self.history_text.config(state="normal")
+    def _add_message(self, role: str, content: str) -> tk.Label:
+        row = tk.Frame(self.chat_frame, bg=self.BG)
+        row.pack(fill="x", pady=7)
+        if role == "user":
+            card = tk.Frame(row, bg=self.USER)
+            card.pack(anchor="e", padx=(90, 16))
+            label = tk.Label(card, text=content, bg=self.USER, fg=self.TEXT, justify="left",
+                             anchor="w", wraplength=650, padx=16, pady=12, font=("Segoe UI", 11))
+        else:
+            avatar = tk.Label(row, text="✦", bg=self.ACCENT, fg="white", width=2, height=1,
+                              font=("Segoe UI", 11, "bold"))
+            avatar.pack(side="left", anchor="n", padx=(20, 12))
+            card = tk.Frame(row, bg=self.BG)
+            card.pack(side="left", fill="x", expand=True, padx=(0, 40))
+            label = tk.Label(card, text=content, bg=self.BG, fg=self.TEXT, justify="left",
+                             anchor="w", wraplength=740, padx=0, pady=4, font=("Segoe UI", 11))
+        label.pack()
+        return label
 
-        for entry in self.history_data:
-            user_msg, assist_msg = entry["user"], entry["assistant"]
-            # User line
-            self.history_text.insert(tk.END, f"User: {user_msg}\nAssistant: ")
-            assist_start = self.history_text.index("end-1c")
-            # Assistant line
-            self.history_text.insert(tk.END, assist_msg)
-            assist_end = self.history_text.index("end-1c")
-            self.assistant_segments.append((assist_start, assist_end))
-            self.history_text.insert(tk.END, "\n\n")
-            # apply post-processing (tables, link stripping, highlights, …)
-            self._post_process(assist_start, assist_end)
+    def attach_files(self) -> None:
+        paths = filedialog.askopenfilenames(title="Attach files")
+        for path in paths:
+            if path not in self.attachments:
+                self.attachments.append(path)
+        self._refresh_attachment_row()
 
-        self.history_text.config(state="disabled")
-        self.history_text.see(tk.END)
-        messagebox.showinfo("Load Chat", f"Loaded {len(self.history_data)} turns.")
+    def _refresh_attachment_row(self) -> None:
+        for child in self.attachment_row.winfo_children():
+            child.destroy()
+        for path in self.attachments:
+            chip = tk.Frame(self.attachment_row, bg="#343541")
+            chip.pack(side="left", padx=(0, 6), pady=(0, 5))
+            tk.Label(chip, text="📎 " + os.path.basename(path), bg="#343541", fg=self.TEXT,
+                     font=("Segoe UI", 9), padx=8, pady=4).pack(side="left")
+            tk.Button(chip, text="×", command=lambda p=path: self._remove_attachment(p),
+                      bg="#343541", fg=self.MUTED, activebackground="#343541", activeforeground="white",
+                      relief="flat", bd=0, font=("Segoe UI", 11)).pack(side="left", padx=(0, 4))
 
+    def _remove_attachment(self, path: str) -> None:
+        self.attachments.remove(path)
+        self._refresh_attachment_row()
 
-    # ─────────────────── System Prompt Editor ───────────────────
-    def edit_system_prompt(self):
-        """Open a dialog to edit the system prompt."""
-        def save_and_close():
-            self.system_prompt = text.get("1.0", tk.END).strip() or "You are a helpful assistant."
-            win.destroy()
+    def _attachment_context(self) -> str:
+        chunks = []
+        for path in self.attachments:
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read(12000)
+                chunks.append(f"\n\n--- Attached file: {os.path.basename(path)} ---\n{text}")
+            except Exception:
+                chunks.append(f"\n\n[Attached file: {os.path.basename(path)}; contents could not be read as text]")
+        return "".join(chunks)
 
-        win = tk.Toplevel(self.root)
-        win.title("Edit System Prompt")
-        win.transient(self.root)
-        win.grab_set()
-
-        text = tk.Text(win, wrap=tk.WORD, height=6, width=60)
-        text.insert("1.0", self.system_prompt)
-        text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(pady=(0, 10))
-
-        tk.Button(btn_frame, text="Save", command=save_and_close).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", command=win.destroy).pack(side=tk.LEFT, padx=5)
-
-        self._center_window(win)
-        text.focus_set()
-
-    # ─────────────────── Find dialog ───────────────────
-    def open_find(self):
-        if hasattr(self, "find_window") and self.find_window.winfo_exists():
-            return
-        self.find_window = tk.Toplevel(self.root)
-        self.find_window.protocol("WM_DELETE_WINDOW", self._close_find)
-        self.find_window.title("Find")
-        self.find_window.transient(self.root)
-
-        tk.Label(self.find_window, text="Find:").pack(side=tk.LEFT, padx=(10, 0), pady=10)
-        self.find_entry = tk.Entry(self.find_window)
-        self.find_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=10)
-        self.find_entry.bind("<Return>", lambda e: self.find_next())
-        tk.Button(self.find_window, text="Next", command=self.find_next).pack(
-            side=tk.LEFT, padx=(0, 10), pady=10
-        )
-
-        # Center dialog
-        self.find_window.update_idletasks()
-        root_x = self.root.winfo_x()
-        root_y = self.root.winfo_y()
-        root_w = self.root.winfo_width()
-        root_h = self.root.winfo_height()
-        win_w = self.find_window.winfo_width()
-        win_h = self.find_window.winfo_height()
-        x = root_x + (root_w - win_w) // 2
-        y = root_y + (root_h - win_h) // 2
-        self.find_window.geometry(f"+{x}+{y}")
-
-        self.find_entry.focus_set()
-        self.search_start = "1.0"
-
-    def find_next(self):
-        pattern = self.find_entry.get()
-        if not pattern:
-            return
-        idx = self.history_text.search(pattern, self.search_start, tk.END, nocase=True)
-        if not idx:
-            messagebox.showinfo("Find", f"'{pattern}' not found")
-            self.search_start = "1.0"
-            return
-        end_idx = f"{idx}+{len(pattern)}c"
-        self.history_text.tag_remove("find_highlight", "1.0", tk.END)
-        self.history_text.tag_add("find_highlight", idx, end_idx)
-        self.history_text.see(idx)
-        self.search_start = end_idx
-
-    def _close_find(self):
-        """Remove highlight and destroy the Find window."""
-        self.history_text.tag_remove("find_highlight", "1.0", tk.END)
-        if hasattr(self, "find_window") and self.find_window.winfo_exists():
-            self.find_window.destroy()
-
-    # ─────────────────── Helpers ───────────────────
-    def _on_ctrl_mousewheel(self, event):
-        self.zoom_in() if event.delta > 0 else self.zoom_out()
-
-    def select_model(self):
-        path = filedialog.askopenfilename(
-            title="Select Model",
-            initialdir="models",
-            filetypes=[("GGUF Model", "*.gguf"), ("All files", "*.*")],
-        )
-        if path:
-            self.model_path = path
-            messagebox.showinfo("Model Selected", f"Model set to:\n{path}")
-
-    def toggle_wrap(self):
-        for w in (self.input_text, self.history_text):
-            cur = w.cget("wrap")
-            w.config(wrap=tk.NONE if cur == tk.WORD else tk.WORD)
-
-    def zoom_in(self):
-        for w in (self.input_text, self.history_text):
-            f = tkfont.Font(font=w.cget("font"))
-            f.configure(size=f.cget("size") + 1)
-            w.config(font=f)
-        self._refresh_bold_font()
-
-    def zoom_out(self):
-        for w in (self.input_text, self.history_text):
-            f = tkfont.Font(font=w.cget("font"))
-            s = f.cget("size")
-            if s > 6:
-                f.configure(size=s - 1)
-                w.config(font=f)
-        self._refresh_bold_font()
-
-    def show_about(self):
-        # Create a small About window
-        win = tk.Toplevel(self.root)
-        win.title("About")
-        win.transient(self.root)
-        win.resizable(False, False)
-
-        # Main text
-        text = (
-            "Local LLM Notepad\n"
-            "Version 1.0.0\n"
-            "Built with tkinter and llama-cpp-python\n\n"
-            "Local LLM Notepad (c) by Run Zhou Ye\n\n"
-            "Licensed under a Creative Commons\n"
-            "Attribution-NonCommercial 4.0 International License.\n\n"
-            "You should have received a copy of the license\n"
-            "along with this work. If not, see:"
-        )
-        lbl = tk.Label(win, text=text, justify=tk.LEFT, bg="white")
-        lbl.pack(padx=15, pady=(15, 5), anchor="w")
-
-        # Clickable link
-        link = "https://creativecommons.org/licenses/by-nc/4.0/"
-        link_lbl = tk.Label(
-            win,
-            text=link,
-            fg="blue",
-            cursor="hand2",
-            underline=True,
-            bg="white",
-        )
-        link_lbl.pack(padx=15, pady=(0, 15), anchor="w")
-        link_lbl.bind(
-            "<Button-1>",
-            lambda e, url=link: webbrowser.open_new(url)
-        )
-
-        # OK button to close
-        btn = tk.Button(win, text="OK", command=win.destroy)
-        btn.pack(pady=(0, 15))
-
-        # Center it over the main window
-        self._center_window(win)
-
-    # ─────────────────── Chat actions ───────────────────
-    def on_send(self):
+    def on_send(self) -> None:
         if self.gen_thread and self.gen_thread.is_alive():
-            messagebox.showinfo(
-                "Please wait", "Generation in progress.\nPress Ctrl+Z to stop first."
-            )
             return
-
         prompt = self.input_text.get("1.0", tk.END).strip()
-        if not prompt:
+        if not prompt or not self.current_session:
             return
-
-        self.history_data.append({"user": prompt, "assistant": ""})
-        prev = [(d["user"], d["assistant"]) for d in self.history_data[:-1]]
-
-        self.history_text.config(state="normal")
-        self.history_text.insert(tk.END, f"User: {prompt}\nAssistant: ")
-        self.assist_start = self.history_text.index("end-1c")
-        self.history_text.config(state="disabled")
-
+        prompt_for_model = prompt + self._attachment_context()
+        previous: list[Tuple[str, str]] = []
+        messages = self.current_session["messages"]
+        for i, message in enumerate(messages):
+            if message["role"] == "user" and i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                previous.append((message["content"], messages[i + 1]["content"]))
+        self.current_session["messages"].append({"role": "user", "content": prompt})
+        if self.current_session["title"] == "New chat":
+            self.current_session["title"] = prompt[:34] + ("…" if len(prompt) > 34 else "")
+        self.history_data.append({"user": prompt_for_model, "assistant": ""})
         self.input_text.delete("1.0", tk.END)
-        self.history_text.see(tk.END)
-
-        self.queue = queue.Queue()
+        self.attachments.clear()
+        self._refresh_sessions()
+        self._render_chat()
+        self._add_message("assistant", "")
+        row = self.chat_frame.winfo_children()[-1]
+        card = row.winfo_children()[-1]
+        self.assistant_label = card.winfo_children()[-1]
+        self.assistant_text = ""
         self.stop_event.clear()
-        self.gen_thread = threading.Thread(
-            target=self._worker_generate, args=(prompt, prev), daemon=True
-        )
+        self.queue = queue.Queue()
+        self.gen_thread = threading.Thread(target=self._worker_generate,
+                                           args=(prompt_for_model, previous, self.current_session), daemon=True)
         self.gen_thread.start()
-        self.history_text.after(50, self._process_queue)
+        self.chat_canvas.after(50, self._process_queue)
 
-    def on_stop(self):
-        if self.gen_thread and self.gen_thread.is_alive():
-            self.stop_event.set()
-
-    def on_clear(self):
-        if self.gen_thread and self.gen_thread.is_alive():
-            messagebox.showinfo("Please wait", "Cannot clear while generating.")
-            return
-        self.history_data.clear()
-        self.history_text.config(state="normal")
-        self.history_text.delete("1.0", tk.END)
-        self.history_text.config(state="disabled")
-        self.input_text.delete("1.0", tk.END)
-        self.assistant_segments.clear()
-
-    # ─────────────────── Generation thread ───────────────────
-    def _worker_generate(self, prompt: str, history: List[Tuple[str, str]]):
+    def _worker_generate(self, prompt: str, history: List[Tuple[str, str]], session: dict[str, Any]) -> None:
         last = ""
         try:
-            for full in respond(
-                prompt,
-                history,
-                model=self.model_path,
-                system_message=self.system_prompt,
-            ):
+            # Keep the UI launchable even when the optional local-model runtime
+            # is not present yet; the portable build bundles it separately.
+            from llm_utils import respond
+
+            for full in respond(prompt, history, model=self.model_path, system_message=self.system_prompt):
                 if self.stop_event.is_set():
                     break
-                delta = full[len(last) :]
-                self.queue.put(delta)
+                self.queue.put(full[len(last):])
                 last = full
-        except Exception as e:
-            self.queue.put(f"[Error] {e}\n")
+        except Exception as exc:
+            last += f"\n\nError: {exc}"
+            self.queue.put(last)
         finally:
-            if self.history_data:
-                self.history_data[-1]["assistant"] = last
+            session["messages"].append({"role": "assistant", "content": last})
+            self.history_data[-1]["assistant"] = last
             self.queue.put(None)
 
-    def _process_queue(self):
+    def _process_queue(self) -> None:
         while True:
             try:
                 item = self.queue.get_nowait()
             except queue.Empty:
                 break
             if item is None:
-                self.history_text.config(state="normal")
-                self.history_text.insert(tk.END, "\n\n\n\n")
-                end_pos = self.history_text.index("end-1c")
-                self._post_process(self.assist_start, end_pos)
-                self.history_text.config(state="disabled")
+                self.assistant_label = None
+                self._refresh_sessions()
+                self._persist_sessions()
                 return
-            at_bot = float(self.history_text.yview()[1]) >= 0.99
-            self.history_text.config(state="normal")
-            self.history_text.insert(tk.END, item)
-            self.history_text.config(state="disabled")
-            if at_bot:
-                self.history_text.see(tk.END)
+            self.assistant_text += item
+            if self.assistant_label:
+                self.assistant_label.config(text=self.assistant_text)
+            self.chat_canvas.update_idletasks()
+            self.chat_canvas.yview_moveto(1.0)
         if self.gen_thread and self.gen_thread.is_alive():
-            self.history_text.after(50, self._process_queue)
+            self.chat_canvas.after(50, self._process_queue)
 
-    # ─────────────────── Post-processing ───────────────────
-    def _post_process(self, start: str, end: str):
-        raw = self.history_text.get(start, end)
-        clean = re.sub(r"\*\*(.*?)\*\*", r"\1", raw)
-        clean = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1: \2", clean)
-        clean = self._table_pattern.sub(lambda m: self._md_table_to_tsv(m.group(1)), clean)
+    def on_stop(self) -> None:
+        if self.gen_thread and self.gen_thread.is_alive():
+            self.stop_event.set()
 
-        if clean != raw:
-            self.history_text.delete(start, end)
-            self.history_text.insert(start, clean)
+    def select_model(self) -> None:
+        path = filedialog.askopenfilename(title="Select GGUF model", filetypes=[("GGUF Model", "*.gguf"), ("All files", "*.*")])
+        if path:
+            self.model_path = path
+            self.model_label.config(text=os.path.basename(path))
 
-        self.history_text.tag_remove("user_word", start, end)
-        self._highlight_user_words(start, end)
-        self.assistant_segments.append((start, end))
-
-    def _highlight_user_words(self, start: str, end: str):
-        """
-        Bold-underline every token appearing in ANY user prompt, including:
-          • plain words   → hello
-          • numbers       → 45, 3.14
-          • dims (NxM…)   → 2x5, 4x3x2
-        """
-        tokens: set[str] = set()
-
-        word_re = re.compile(r"[A-Za-z']+")
-        num_re = re.compile(r"\d+(?:\.\d+)?")
-        dim_re = re.compile(r"\d+(?:x\d+)+", re.I)
-
-        for entry in self.history_data:
-            txt = entry["user"]
-            tokens.update(m.group(0) for m in word_re.finditer(txt))
-            tokens.update(m.group(0) for m in num_re.finditer(txt))
-            tokens.update(m.group(0) for m in dim_re.finditer(txt))
-
-        if not tokens:
+    def save_chat(self) -> None:
+        if not self.current_session or not self.current_session["messages"]:
+            messagebox.showinfo("Save Chat", "Nothing to save yet.")
             return
+        path = filedialog.asksaveasfilename(title="Save Chat", defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.current_session["messages"], f, ensure_ascii=False, indent=2)
 
-        for tok in tokens:
-            pure_word = re.match(r"^\w+$", tok) is not None
-
-            if pure_word:  # word → use \m..\M
-                pattern = rf"\m{re.escape(tok)}\M"
-                use_regex = True
-            else:  # number / dim
-                pattern = tok
-                use_regex = False
-
-            idx = start
-            while True:
-                idx = self.history_text.search(
-                    pattern, idx, end, nocase=True, regexp=use_regex
-                )
-                if not idx:
-                    break
-                end_idx = f"{idx}+{len(tok)}c"
-                self.history_text.tag_add("user_word", idx, end_idx)
-                idx = end_idx
-
-    # ─── toggle from menu or Ctrl+D ─────────────────────────────────
-    def toggle_word_style(self):
-        self.style_on = not self.style_on
-        self._apply_word_style()
-
-        # refresh highlights just for assistant segments
-        self.history_text.tag_remove("user_word", "1.0", tk.END)
-        for start, end in self.assistant_segments:
-            self._highlight_user_words(start, end)
-
-    # ─── apply current style to the tag ─────────────────────────────
-    def _apply_word_style(self):
-        if self.style_on:
-            self.history_text.tag_config("user_word", font=self.bold_font, underline=True)
-        else:  # plain
-            self.history_text.tag_config(
-                "user_word", font=self.history_text.cget("font"), underline=False
-            )
-
-    def _refresh_bold_font(self):
-        """Match bold-underline font size to history_text current size."""
-        base = tkfont.Font(font=self.history_text.cget("font"))
-        self.bold_font.configure(size=base.cget("size"))  # keep weight/underline
-        if self.style_on:  # tag might be off
-            self.history_text.tag_config("user_word", font=self.bold_font)
-
-    # ─────────────────── Ctrl-click handler ───────────────────
-    def _on_ctrl_click_user_word(self, event):
-        index = self.history_text.index(f"@{event.x},{event.y}")
-        clicked = self.history_text.get(f"{index} wordstart", f"{index} wordend").strip()
-        if clicked:
-            self._show_user_prompts_window(clicked.lower())
-
-    def _show_user_prompts_window(self, word: str):
-        """Highlight *all* occurrences of <word> in yellow, but scroll to the
-        next one (cycling) each time the green word is Ctrl-clicked."""
-        # ── create the window & widgets on first use ──
-        if self.user_prompts_win is None or not self.user_prompts_win.winfo_exists():
-            self.user_prompts_win = tk.Toplevel(self.root)
-            self.user_prompts_win.title("User Prompts")
-
-            # match main-window look
-            self.user_prompts_win.configure(bg="white", bd=0, highlightthickness=0)
-
-            self.user_prompts_text = tk.Text(
-                self.user_prompts_win,
-                wrap=tk.WORD,
-                state="disabled",
-                bg="white",  # same white background
-                bd=0,  # no 3-D border
-                highlightthickness=0,  # no focus ring
-            )
-            self.user_prompts_text.tag_config("clicked_word", background="yellow")
-            self.user_prompts_text.tag_config("focus_word", background="gold")
-
-            vscroll = tk.Scrollbar(
-                self.user_prompts_win,
-                command=self.user_prompts_text.yview,
-                bd=0,
-                relief="flat",
-                highlightthickness=0,
-            )
-            self.user_prompts_text.configure(yscrollcommand=vscroll.set)
-
-            self.user_prompts_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            vscroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-            self._center_window(self.user_prompts_win)  # keep existing centering
-
-        # ── (re)populate the text box ──
-        combined = "\n".join(f"{i+1:>2}. {d['user']}" for i, d in enumerate(self.history_data)) + "\n"
-        self.user_prompts_text.config(state="normal")
-        self.user_prompts_text.delete("1.0", tk.END)
-        self.user_prompts_text.insert("1.0", combined)
-
-        # ── clear old tags, then tag *all* occurrences ──
-        self.user_prompts_text.tag_remove("clicked_word", "1.0", tk.END)
-        self.user_prompts_text.tag_remove("focus_word", "1.0", tk.END)
-
-        pattern = rf"\m{re.escape(word)}\M"
-        idx = "1.0"
-        all_positions: list[str] = []
-        while True:
-            idx = self.user_prompts_text.search(pattern, idx, tk.END, nocase=True, regexp=True)
-            if not idx:
-                break
-            end_idx = f"{idx}+{len(word)}c"
-            self.user_prompts_text.tag_add("clicked_word", idx, end_idx)
-            all_positions.append(idx)
-            idx = end_idx
-
-        if not all_positions:
-            # nothing found: reset pointer and return
-            self.next_pos[word] = 0
-            self.user_prompts_text.config(state="disabled")
-            self.user_prompts_win.lift()
+    def load_chat(self) -> None:
+        path = filedialog.askopenfilename(title="Load Chat", filetypes=[("JSON files", "*.json")])
+        if not path:
             return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            messages = data if isinstance(data, list) else data.get("messages", [])
+            if not all(isinstance(m, dict) and m.get("role") in ("user", "assistant") for m in messages):
+                raise ValueError("Invalid chat format")
+            session = {"title": next((m["content"][:34] for m in messages if m["role"] == "user"), "Loaded chat"), "messages": messages}
+            self.sessions.insert(0, session)
+            self.current_session = session
+            self._refresh_sessions()
+            self._render_chat()
+            self._persist_sessions()
+        except Exception as exc:
+            messagebox.showerror("Load Chat", f"Could not load chat:\n{exc}")
 
-        # ── figure out which occurrence to focus on this click ──
-        curr_index = self.next_pos.get(word, 0) % len(all_positions)
-        focus_pos = all_positions[curr_index]
-        focus_end = f"{focus_pos}+{len(word)}c"
-        self.user_prompts_text.tag_add("focus_word", focus_pos, focus_end)
-        self.user_prompts_text.see(focus_pos)
+    def edit_system_prompt(self) -> None:
+        prompt = simpledialog.askstring("System prompt", "Instructions for the assistant:", initialvalue=self.system_prompt, parent=self.root)
+        if prompt is not None:
+            self.system_prompt = prompt.strip() or "You are a helpful assistant."
 
-        # next time, advance
-        self.next_pos[word] = (curr_index + 1) % len(all_positions)
-
-        self.user_prompts_text.config(state="disabled")
-        self.user_prompts_win.lift()
-
-    def _center_window(self, win: tk.Toplevel):
-        """Position <win> in the center of the root window."""
-        win.update_idletasks()  # make sure size is known
-        root_x, root_y = self.root.winfo_x(), self.root.winfo_y()
-        root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
-        win_w, win_h = win.winfo_width(), win.winfo_height()
-        x = root_x + max((root_w - win_w) // 2, 0)
-        y = root_y + max((root_h - win_h) // 2, 0)
-        win.geometry(f"+{x}+{y}")
-
-    # ─────────────────── Markdown utilities ───────────────────
-    @staticmethod
-    def _md_table_to_tsv(md: str) -> str:
-        lines = md.strip().splitlines()
-        header = [c.strip() for c in lines[0].strip("|").split("|")]
-        rows = [[c.strip() for c in ln.strip("|").split("|")] for ln in lines[2:] if ln.startswith("|")]
-        tsv = "\t".join(header) + "\n"
-        tsv += "\n".join("\t".join(r) for r in rows) + "\n"
-        return tsv
+    def show_about(self) -> None:
+        messagebox.showinfo("About Local LLM Notepad", "Local LLM Notepad\nA portable, private ChatGPT-style interface for local GGUF models.")
 
 
 def run_app() -> None:
-    """Create Tk root and start the main loop (used by main.py)."""
     root = tk.Tk()
     ChatGUI(root)
     root.mainloop()
